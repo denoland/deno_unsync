@@ -5,6 +5,8 @@ edition = "2021"
 authors = ["the Deno authors"]
 license = "MIT"
 repository = "https://github.com/denoland/deno_unsync"
+description = "A collection of adapters to make working with Tokio single-threaded runtimes easier"
+readme = "README.md"
 
 [dependencies]
 tokio = { version = "1", features = ["rt"] }
