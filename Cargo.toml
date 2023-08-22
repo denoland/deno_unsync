@@ -2,8 +2,9 @@
 name = "deno_unsync"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["the Deno authors"]
+license = "MIT"
+repository = "https://github.com/denoland/deno_unsync"
 
 [dependencies]
 tokio = { version = "1", features = ["rt"] }
