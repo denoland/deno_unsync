@@ -1,6 +1,6 @@
 [package]
 name = "deno_unsync"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["the Deno authors"]
 license = "MIT"
