@@ -66,7 +66,7 @@ impl TaskQueue {
       front_item
     };
 
-    // wake up te next waker
+    // wake up the next waker
     if let Some(front_waker) = front_waker {
       front_waker.is_ready.raise();
       let maybe_waker = front_waker.waker.borrow_mut().take();
