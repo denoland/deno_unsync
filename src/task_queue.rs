@@ -48,6 +48,32 @@ impl TaskQueue {
       result
     }
   }
+
+  fn raise_next(&self) {
+    let front_waker = {
+      let mut tasks = self.tasks.borrow_mut();
+
+      // clear out any wakers for futures that were dropped
+      while let Some(front_waker) = tasks.wakers.front() {
+        if front_waker.is_future_dropped.is_raised() {
+          tasks.wakers.pop_front();
+        } else {
+          break;
+        }
+      }
+      tasks.is_running = tasks.wakers.front().is_some();
+      tasks.wakers.pop_front()
+    };
+
+    // wake up te next waker
+    if let Some(front_waker) = front_waker {
+      front_waker.is_ready.raise();
+      let maybe_waker = front_waker.waker.borrow_mut().take();
+      if let Some(waker) = maybe_waker {
+        waker.wake();
+      }
+    }
+  }
 }
 
 /// A permit that when dropped will allow another task to proceed.
@@ -55,19 +81,7 @@ pub struct TaskQueuePermit(Rc<TaskQueue>);
 
 impl Drop for TaskQueuePermit {
   fn drop(&mut self) {
-    let next_item = {
-      let mut tasks = self.0.tasks.borrow_mut();
-      let next_waker = tasks.wakers.pop_front();
-      tasks.is_running = next_waker.is_some();
-      next_waker
-    };
-    if let Some(next_waker) = next_item {
-      next_waker.is_ready.raise();
-      let inner_waker = next_waker.waker.borrow_mut().take();
-      if let Some(waker) = inner_waker {
-        waker.wake();
-      }
-    }
+    self.0.raise_next();
   }
 }
 
@@ -83,11 +97,11 @@ impl Drop for TaskQueuePermitAcquireFuture {
         waker.is_future_dropped.raise();
 
         if waker.is_ready.is_raised() {
-          self.raise_next(&task_queue);
+          task_queue.raise_next();
         }
       } else {
         // this was the first waker, so raise the next one
-        self.raise_next(&task_queue);
+        task_queue.raise_next();
       }
     }
   }
@@ -111,32 +125,6 @@ impl TaskQueuePermitAcquireFuture {
       Self {
         task_queue: FastOptionCell::new(task_queue),
         waker: Some(waker),
-      }
-    }
-  }
-
-  fn raise_next(&self, task_queue: &TaskQueue) {
-    let front_waker = {
-      let mut tasks = task_queue.tasks.borrow_mut();
-
-      // clear out any wakers for futures that were dropped
-      while let Some(front_waker) = tasks.wakers.front() {
-        if front_waker.is_future_dropped.is_raised() {
-          tasks.wakers.pop_front();
-        } else {
-          break;
-        }
-      }
-      tasks.is_running = tasks.wakers.front().is_some();
-      tasks.wakers.pop_front()
-    };
-
-    // wake up te next waker
-    if let Some(front_waker) = front_waker {
-      front_waker.is_ready.raise();
-      let maybe_waker = front_waker.waker.borrow_mut().take();
-      if let Some(waker) = maybe_waker {
-        waker.wake();
       }
     }
   }
@@ -359,5 +347,19 @@ mod tests {
 
     tokio::try_join!(task1, task2, task3).unwrap();
     assert_eq!(*value.borrow(), 3);
+  }
+
+  #[tokio::test]
+  async fn middle_future_dropped_while_permit_acquired() {
+    let task_queue = Rc::new(TaskQueue::default());
+
+    let fut1 = task_queue.acquire();
+    let fut2 = task_queue.acquire();
+    let fut3 = task_queue.acquire();
+
+    // should not hang
+    drop(fut2);
+    drop(fut1.await);
+    drop(fut3.await);
   }
 }
