@@ -290,4 +290,37 @@ mod tests {
 
     assert!(delayed_task.await.unwrap());
   }
+
+  #[tokio::test]
+  async fn acquires_position_synchronously() {
+    let task_queue = Rc::new(TaskQueue::default());
+
+    let fut1 = task_queue.acquire();
+    let fut2 = task_queue.acquire();
+    let value = Rc::new(RefCell::new(0));
+
+    let task1 = crate::spawn({
+      let value = value.clone();
+      async move {
+        let permit = fut2.await;
+        assert_eq!(*value.borrow(), 1);
+        *value.borrow_mut() += 1;
+        drop(permit);
+      }
+    });
+    let task2 = crate::spawn({
+      let value = value.clone();
+      async move {
+        // give the other task some time
+        tokio::task::yield_now().await;
+        let permit = fut1.await;
+        assert_eq!(*value.borrow(), 0);
+        *value.borrow_mut() += 1;
+        drop(permit);
+      }
+    });
+
+    tokio::try_join!(task1, task2).unwrap();
+    assert_eq!(*value.borrow(), 2);
+  }
 }
