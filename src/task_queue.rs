@@ -11,7 +11,7 @@ use crate::Flag;
 struct TaskQueueTaskWaker {
   is_ready: Flag,
   is_future_dropped: Flag,
-  waker: FastOptionCell<Waker>,
+  waker: RefCell<Option<Waker>>,
 }
 
 #[derive(Debug, Default)]
@@ -36,7 +36,10 @@ impl TaskQueue {
 
   /// Alternate API that acquires a permit internally
   /// for the duration of the future.
-  pub fn run<R>(self: &Rc<Self>, future: impl Future<Output = R>) -> impl Future<Output = R> {
+  pub fn run<R>(
+    self: &Rc<Self>,
+    future: impl Future<Output = R>,
+  ) -> impl Future<Output = R> {
     let acquire_future = self.acquire();
     async move {
       let permit = acquire_future.await;
@@ -60,7 +63,7 @@ impl Drop for TaskQueuePermit {
     };
     if let Some(next_waker) = next_item {
       next_waker.is_ready.raise();
-      if let Some(waker) = next_waker.waker.take() {
+      if let Some(waker) = next_waker.waker.borrow_mut().take() {
         waker.wake();
       }
     }
@@ -75,30 +78,33 @@ pub struct TaskQueuePermitAcquireFuture {
 impl Drop for TaskQueuePermitAcquireFuture {
   fn drop(&mut self) {
     if let Some(task_queue) = self.task_queue.take() {
-    self.waker.is_future_dropped.raise();
+      self.waker.is_future_dropped.raise();
 
-    if self.waker.is_ready.is_raised() {
-      let mut tasks = task_queue.tasks.borrow_mut();
+      if self.waker.is_ready.is_raised() {
+        let front_waker = {
+          let mut tasks = task_queue.tasks.borrow_mut();
 
-      // clear out any wakers for futures that were drpped
-      while let Some(front_waker) = tasks.wakers.front() {
-        if front_waker.is_future_dropped.is_raised() {
-          tasks.wakers.pop_front();
-        } else {
-          break;
-        }
-      }
+          // clear out any wakers for futures that were drpped
+          while let Some(front_waker) = tasks.wakers.front() {
+            if front_waker.is_future_dropped.is_raised() {
+              tasks.wakers.pop_front();
+            } else {
+              break;
+            }
+          }
+          tasks.is_running = tasks.wakers.front().is_some();
+          tasks.wakers.pop_front()
+        };
 
-      // wake up te next waker
-      tasks.is_running = tasks.wakers.front().is_some();
-      if let Some(front_waker) = tasks.wakers.pop_front() {
-        front_waker.is_ready.raise();
-        if let Some(waker) = front_waker.waker.take() {
-          waker.wake();
+        // wake up te next waker
+        if let Some(front_waker) = front_waker {
+          front_waker.is_ready.raise();
+          if let Some(waker) = front_waker.waker.borrow_mut().take() {
+            waker.wake();
+          }
         }
       }
     }
-  }
   }
 }
 
@@ -133,10 +139,16 @@ impl Future for TaskQueuePermitAcquireFuture {
       std::task::Poll::Ready(TaskQueuePermit(self.task_queue.take().unwrap()))
     } else {
       // store the waker for next time
-      self.waker.waker.replace_if_with(
-        |w| w.as_ref().map(|w| !w.will_wake(cx.waker())).unwrap_or(true),
-        || cx.waker().clone(),
-      );
+      let mut stored_waker = self.waker.waker.borrow_mut();
+      // update with the latest waker if it's different or not set
+      if stored_waker
+        .as_ref()
+        .map(|w| !w.will_wake(cx.waker()))
+        .unwrap_or(true)
+      {
+        *stored_waker = Some(cx.waker().clone());
+      }
+
       std::task::Poll::Pending
     }
   }
@@ -146,9 +158,9 @@ impl Future for TaskQueuePermitAcquireFuture {
 struct FastOptionCell<T>(UnsafeCell<Option<T>>);
 
 impl<T> Default for FastOptionCell<T> {
-    fn default() -> Self {
-      Self(Default::default())
-    }
+  fn default() -> Self {
+    Self(Default::default())
+  }
 }
 
 impl<T> FastOptionCell<T> {
@@ -156,24 +168,10 @@ impl<T> FastOptionCell<T> {
     Self(UnsafeCell::new(Some(value)))
   }
 
-  pub fn take(&self) -> Option<T> {
+  fn take(&self) -> Option<T> {
     unsafe {
       let value = &mut *self.0.get();
       value.take()
-    }
-  }
-
-  pub fn replace_if_with(
-    &self,
-    if_condition: impl FnOnce(&Option<T>) -> bool,
-    replace_with: impl FnOnce() -> T,
-  ) {
-    // update with the latest waker if it's different or not set
-    unsafe {
-      let value = &mut *self.0.get();
-      if if_condition(value) {
-        *value = Some(replace_with());
-      }
     }
   }
 }

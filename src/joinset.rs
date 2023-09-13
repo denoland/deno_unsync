@@ -65,6 +65,11 @@ impl<T: 'static> JoinSet<T> {
     self.joinset.len()
   }
 
+  /// Returns whether the `JoinSet` is empty.
+  pub fn is_empty(&self) -> bool {
+    self.joinset.is_empty()
+  }
+
   /// Waits until one of the tasks in the set completes and returns its output.
   ///
   /// # Cancel Safety
