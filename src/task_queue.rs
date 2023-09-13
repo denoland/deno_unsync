@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cell::UnsafeCell;
 use std::collections::LinkedList;
 use std::future::Future;
 use std::rc::Rc;
@@ -48,6 +47,33 @@ impl TaskQueue {
       result
     }
   }
+
+  fn raise_next(&self) {
+    let front_waker = {
+      let mut tasks = self.tasks.borrow_mut();
+
+      // clear out any wakers for futures that were dropped
+      while let Some(front_waker) = tasks.wakers.front() {
+        if front_waker.is_future_dropped.is_raised() {
+          tasks.wakers.pop_front();
+        } else {
+          break;
+        }
+      }
+      let front_item = tasks.wakers.pop_front();
+      tasks.is_running = front_item.is_some();
+      front_item
+    };
+
+    // wake up the next waker
+    if let Some(front_waker) = front_waker {
+      front_waker.is_ready.raise();
+      let maybe_waker = front_waker.waker.borrow_mut().take();
+      if let Some(waker) = maybe_waker {
+        waker.wake();
+      }
+    }
+  }
 }
 
 /// A permit that when dropped will allow another task to proceed.
@@ -55,24 +81,12 @@ pub struct TaskQueuePermit(Rc<TaskQueue>);
 
 impl Drop for TaskQueuePermit {
   fn drop(&mut self) {
-    let next_item = {
-      let mut tasks = self.0.tasks.borrow_mut();
-      let next_waker = tasks.wakers.pop_front();
-      tasks.is_running = next_waker.is_some();
-      next_waker
-    };
-    if let Some(next_waker) = next_item {
-      next_waker.is_ready.raise();
-      let inner_waker = next_waker.waker.borrow_mut().take();
-      if let Some(waker) = inner_waker {
-        waker.wake();
-      }
-    }
+    self.0.raise_next();
   }
 }
 
 pub struct TaskQueuePermitAcquireFuture {
-  task_queue: FastOptionCell<Rc<TaskQueue>>,
+  task_queue: Option<Rc<TaskQueue>>,
   waker: Option<Rc<TaskQueueTaskWaker>>,
 }
 
@@ -80,14 +94,14 @@ impl Drop for TaskQueuePermitAcquireFuture {
   fn drop(&mut self) {
     if let Some(task_queue) = self.task_queue.take() {
       if let Some(waker) = self.waker.take() {
-        waker.is_future_dropped.raise();
-
         if waker.is_ready.is_raised() {
-          self.raise_next(&task_queue);
+          task_queue.raise_next();
+        } else {
+          waker.is_future_dropped.raise();
         }
       } else {
         // this was the first waker, so raise the next one
-        self.raise_next(&task_queue);
+        task_queue.raise_next();
       }
     }
   }
@@ -101,7 +115,7 @@ impl TaskQueuePermitAcquireFuture {
       tasks.is_running = true;
       drop(tasks);
       Self {
-        task_queue: FastOptionCell::new(task_queue),
+        task_queue: Some(task_queue),
         waker: None, // avoid boxing for the fast path
       }
     } else {
@@ -109,34 +123,8 @@ impl TaskQueuePermitAcquireFuture {
       tasks.wakers.push_back(waker.clone());
       drop(tasks);
       Self {
-        task_queue: FastOptionCell::new(task_queue),
+        task_queue: Some(task_queue),
         waker: Some(waker),
-      }
-    }
-  }
-
-  fn raise_next(&self, task_queue: &TaskQueue) {
-    let front_waker = {
-      let mut tasks = task_queue.tasks.borrow_mut();
-
-      // clear out any wakers for futures that were dropped
-      while let Some(front_waker) = tasks.wakers.front() {
-        if front_waker.is_future_dropped.is_raised() {
-          tasks.wakers.pop_front();
-        } else {
-          break;
-        }
-      }
-      tasks.is_running = tasks.wakers.front().is_some();
-      tasks.wakers.pop_front()
-    };
-
-    // wake up te next waker
-    if let Some(front_waker) = front_waker {
-      front_waker.is_ready.raise();
-      let maybe_waker = front_waker.waker.borrow_mut().take();
-      if let Some(waker) = maybe_waker {
-        waker.wake();
       }
     }
   }
@@ -146,7 +134,7 @@ impl Future for TaskQueuePermitAcquireFuture {
   type Output = TaskQueuePermit;
 
   fn poll(
-    self: std::pin::Pin<&mut Self>,
+    mut self: std::pin::Pin<&mut Self>,
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
     // check if we're ready to run
@@ -172,28 +160,6 @@ impl Future for TaskQueuePermitAcquireFuture {
       }
 
       std::task::Poll::Pending
-    }
-  }
-}
-
-#[derive(Debug)]
-struct FastOptionCell<T>(UnsafeCell<Option<T>>);
-
-impl<T> Default for FastOptionCell<T> {
-  fn default() -> Self {
-    Self(Default::default())
-  }
-}
-
-impl<T> FastOptionCell<T> {
-  pub fn new(value: T) -> Self {
-    Self(UnsafeCell::new(Some(value)))
-  }
-
-  fn take(&self) -> Option<T> {
-    unsafe {
-      let value = &mut *self.0.get();
-      value.take()
     }
   }
 }
@@ -359,5 +325,19 @@ mod tests {
 
     tokio::try_join!(task1, task2, task3).unwrap();
     assert_eq!(*value.borrow(), 3);
+  }
+
+  #[tokio::test]
+  async fn middle_future_dropped_while_permit_acquired() {
+    let task_queue = Rc::new(TaskQueue::default());
+
+    let fut1 = task_queue.acquire();
+    let fut2 = task_queue.acquire();
+    let fut3 = task_queue.acquire();
+
+    // should not hang
+    drop(fut2);
+    drop(fut1.await);
+    drop(fut3.await);
   }
 }
