@@ -63,7 +63,8 @@ impl Drop for TaskQueuePermit {
     };
     if let Some(next_waker) = next_item {
       next_waker.is_ready.raise();
-      if let Some(waker) = next_waker.waker.borrow_mut().take() {
+      let inner_waker = next_waker.waker.borrow_mut().take();
+      if let Some(waker) = inner_waker {
         waker.wake();
       }
     }
@@ -72,37 +73,21 @@ impl Drop for TaskQueuePermit {
 
 pub struct TaskQueuePermitAcquireFuture {
   task_queue: FastOptionCell<Rc<TaskQueue>>,
-  waker: Rc<TaskQueueTaskWaker>,
+  waker: Option<Rc<TaskQueueTaskWaker>>,
 }
 
 impl Drop for TaskQueuePermitAcquireFuture {
   fn drop(&mut self) {
     if let Some(task_queue) = self.task_queue.take() {
-      self.waker.is_future_dropped.raise();
+      if let Some(waker) = self.waker.take() {
+        waker.is_future_dropped.raise();
 
-      if self.waker.is_ready.is_raised() {
-        let front_waker = {
-          let mut tasks = task_queue.tasks.borrow_mut();
-
-          // clear out any wakers for futures that were drpped
-          while let Some(front_waker) = tasks.wakers.front() {
-            if front_waker.is_future_dropped.is_raised() {
-              tasks.wakers.pop_front();
-            } else {
-              break;
-            }
-          }
-          tasks.is_running = tasks.wakers.front().is_some();
-          tasks.wakers.pop_front()
-        };
-
-        // wake up te next waker
-        if let Some(front_waker) = front_waker {
-          front_waker.is_ready.raise();
-          if let Some(waker) = front_waker.waker.borrow_mut().take() {
-            waker.wake();
-          }
+        if waker.is_ready.is_raised() {
+          self.raise_next(&task_queue);
         }
+      } else {
+        // this was the first waker, so raise the next one
+        self.raise_next(&task_queue);
       }
     }
   }
@@ -111,18 +96,48 @@ impl Drop for TaskQueuePermitAcquireFuture {
 impl TaskQueuePermitAcquireFuture {
   pub fn new(task_queue: Rc<TaskQueue>) -> Self {
     // acquire the waker position synchronously
-    let waker = Rc::new(TaskQueueTaskWaker::default());
     let mut tasks = task_queue.tasks.borrow_mut();
     if !tasks.is_running {
       tasks.is_running = true;
-      waker.is_ready.raise();
+      drop(tasks);
+      Self {
+        task_queue: FastOptionCell::new(task_queue),
+        waker: None, // avoid boxing for the fast path
+      }
     } else {
+      let waker = Rc::new(TaskQueueTaskWaker::default());
       tasks.wakers.push_back(waker.clone());
+      drop(tasks);
+      Self {
+        task_queue: FastOptionCell::new(task_queue),
+        waker: Some(waker),
+      }
     }
-    drop(tasks);
-    Self {
-      task_queue: FastOptionCell::new(task_queue),
-      waker,
+  }
+
+  fn raise_next(&self, task_queue: &TaskQueue) {
+    let front_waker = {
+      let mut tasks = task_queue.tasks.borrow_mut();
+
+      // clear out any wakers for futures that were dropped
+      while let Some(front_waker) = tasks.wakers.front() {
+        if front_waker.is_future_dropped.is_raised() {
+          tasks.wakers.pop_front();
+        } else {
+          break;
+        }
+      }
+      tasks.is_running = tasks.wakers.front().is_some();
+      tasks.wakers.pop_front()
+    };
+
+    // wake up te next waker
+    if let Some(front_waker) = front_waker {
+      front_waker.is_ready.raise();
+      let maybe_waker = front_waker.waker.borrow_mut().take();
+      if let Some(waker) = maybe_waker {
+        waker.wake();
+      }
     }
   }
 }
@@ -135,12 +150,18 @@ impl Future for TaskQueuePermitAcquireFuture {
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
     // check if we're ready to run
-    if self.waker.is_ready.is_raised() {
+    let Some(waker) = &self.waker else {
+      // no waker means this was the first queued future, so we're ready to run
+      return std::task::Poll::Ready(TaskQueuePermit(
+        self.task_queue.take().unwrap(),
+      ));
+    };
+    if waker.is_ready.is_raised() {
       // we're done, move the task queue out
       std::task::Poll::Ready(TaskQueuePermit(self.task_queue.take().unwrap()))
     } else {
       // store the waker for next time
-      let mut stored_waker = self.waker.waker.borrow_mut();
+      let mut stored_waker = waker.waker.borrow_mut();
       // update with the latest waker if it's different or not set
       if stored_waker
         .as_ref()
@@ -238,12 +259,12 @@ mod tests {
     let future = task_queue.acquire();
 
     // this task tries to acquire another permit, but will be blocked by the first permit.
-    let flag = Rc::new(Flag::default());
+    let enter_flag = Rc::new(Flag::default());
     let delayed_task = crate::spawn({
       let task_queue = task_queue.clone();
-      let flag = flag.clone();
+      let enter_flag = enter_flag.clone();
       async move {
-        flag.raise();
+        enter_flag.raise();
         task_queue.acquire().await;
         true
       }
@@ -251,7 +272,7 @@ mod tests {
 
     // ensure the task gets a chance to be scheduled and blocked
     tokio::task::yield_now().await;
-    assert!(flag.is_raised());
+    assert!(enter_flag.is_raised());
 
     // now, drop the first future
     drop(future);
@@ -265,17 +286,17 @@ mod tests {
 
     // acquire a future, but do not await it
     let mut futures = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..=10_000 {
       futures.push(task_queue.acquire());
     }
 
     // this task tries to acquire another permit, but will be blocked by the first permit.
-    let flag = Rc::new(Flag::default());
+    let enter_flag = Rc::new(Flag::default());
     let delayed_task = crate::spawn({
       let task_queue = task_queue.clone();
-      let flag = flag.clone();
+      let enter_flag = enter_flag.clone();
       async move {
-        flag.raise();
+        enter_flag.raise();
         task_queue.acquire().await;
         true
       }
@@ -283,7 +304,7 @@ mod tests {
 
     // ensure the task gets a chance to be scheduled and blocked
     tokio::task::yield_now().await;
-    assert!(flag.is_raised());
+    assert!(enter_flag.is_raised());
 
     // now, drop the futures
     drop(futures);
