@@ -7,7 +7,7 @@ use std::task::Waker;
 use crate::Flag;
 
 #[derive(Debug, Default)]
-struct TaskQueueTaskWaker {
+struct TaskQueueTaskItem {
   is_ready: Flag,
   is_future_dropped: Flag,
   waker: RefCell<Option<Waker>>,
@@ -16,7 +16,7 @@ struct TaskQueueTaskWaker {
 #[derive(Debug, Default)]
 struct TaskQueueTasks {
   is_running: bool,
-  wakers: LinkedList<Rc<TaskQueueTaskWaker>>,
+  items: LinkedList<Rc<TaskQueueTaskItem>>,
 }
 
 /// A queue that executes tasks sequentially one after the other
@@ -49,26 +49,26 @@ impl TaskQueue {
   }
 
   fn raise_next(&self) {
-    let front_waker = {
+    let front_item = {
       let mut tasks = self.tasks.borrow_mut();
 
       // clear out any wakers for futures that were dropped
-      while let Some(front_waker) = tasks.wakers.front() {
+      while let Some(front_waker) = tasks.items.front() {
         if front_waker.is_future_dropped.is_raised() {
-          tasks.wakers.pop_front();
+          tasks.items.pop_front();
         } else {
           break;
         }
       }
-      let front_item = tasks.wakers.pop_front();
+      let front_item = tasks.items.pop_front();
       tasks.is_running = front_item.is_some();
       front_item
     };
 
     // wake up the next waker
-    if let Some(front_waker) = front_waker {
-      front_waker.is_ready.raise();
-      let maybe_waker = front_waker.waker.borrow_mut().take();
+    if let Some(front_item) = front_item {
+      front_item.is_ready.raise();
+      let maybe_waker = front_item.waker.borrow_mut().take();
       if let Some(waker) = maybe_waker {
         waker.wake();
       }
@@ -87,20 +87,20 @@ impl Drop for TaskQueuePermit {
 
 pub struct TaskQueuePermitAcquireFuture {
   task_queue: Option<Rc<TaskQueue>>,
-  waker: Option<Rc<TaskQueueTaskWaker>>,
+  item: Option<Rc<TaskQueueTaskItem>>,
 }
 
 impl Drop for TaskQueuePermitAcquireFuture {
   fn drop(&mut self) {
     if let Some(task_queue) = self.task_queue.take() {
-      if let Some(waker) = self.waker.take() {
-        if waker.is_ready.is_raised() {
+      if let Some(item) = self.item.take() {
+        if item.is_ready.is_raised() {
           task_queue.raise_next();
         } else {
-          waker.is_future_dropped.raise();
+          item.is_future_dropped.raise();
         }
       } else {
-        // this was the first waker, so raise the next one
+        // this was the first item, so raise the next one
         task_queue.raise_next();
       }
     }
@@ -109,22 +109,22 @@ impl Drop for TaskQueuePermitAcquireFuture {
 
 impl TaskQueuePermitAcquireFuture {
   pub fn new(task_queue: Rc<TaskQueue>) -> Self {
-    // acquire the waker position synchronously
+    // acquire the position synchronously
     let mut tasks = task_queue.tasks.borrow_mut();
     if !tasks.is_running {
       tasks.is_running = true;
       drop(tasks);
       Self {
         task_queue: Some(task_queue),
-        waker: None, // avoid boxing for the fast path
+        item: None, // avoid boxing for the fast path
       }
     } else {
-      let waker = Rc::new(TaskQueueTaskWaker::default());
-      tasks.wakers.push_back(waker.clone());
+      let item = Rc::new(TaskQueueTaskItem::default());
+      tasks.items.push_back(item.clone());
       drop(tasks);
       Self {
         task_queue: Some(task_queue),
-        waker: Some(waker),
+        item: Some(item),
       }
     }
   }
@@ -138,18 +138,18 @@ impl Future for TaskQueuePermitAcquireFuture {
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
     // check if we're ready to run
-    let Some(waker) = &self.waker else {
-      // no waker means this was the first queued future, so we're ready to run
+    let Some(item) = &self.item else {
+      // no item means this was the first queued future, so we're ready to run
       return std::task::Poll::Ready(TaskQueuePermit(
         self.task_queue.take().unwrap(),
       ));
     };
-    if waker.is_ready.is_raised() {
+    if item.is_ready.is_raised() {
       // we're done, move the task queue out
       std::task::Poll::Ready(TaskQueuePermit(self.task_queue.take().unwrap()))
     } else {
       // store the waker for next time
-      let mut stored_waker = waker.waker.borrow_mut();
+      let mut stored_waker = item.waker.borrow_mut();
       // update with the latest waker if it's different or not set
       if stored_waker
         .as_ref()
