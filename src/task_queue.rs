@@ -297,6 +297,8 @@ mod tests {
 
     let fut1 = task_queue.acquire();
     let fut2 = task_queue.acquire();
+    let fut3 = task_queue.acquire();
+    let fut4 = task_queue.acquire();
     let value = Rc::new(RefCell::new(0));
 
     let task1 = crate::spawn({
@@ -306,6 +308,9 @@ mod tests {
         assert_eq!(*value.borrow(), 1);
         *value.borrow_mut() += 1;
         drop(permit);
+        // dropping this future without awaiting it
+        // should cause the next future to be polled
+        drop(fut3);
       }
     });
     let task2 = crate::spawn({
@@ -319,8 +324,19 @@ mod tests {
         drop(permit);
       }
     });
+    let task3 = crate::spawn({
+      let value = value.clone();
+      async move {
+        // give the other tasks some time
+        tokio::task::yield_now().await;
+        let permit = fut4.await;
+        assert_eq!(*value.borrow(), 2);
+        *value.borrow_mut() += 1;
+        drop(permit);
+      }
+    });
 
-    tokio::try_join!(task1, task2).unwrap();
-    assert_eq!(*value.borrow(), 2);
+    tokio::try_join!(task1, task2, task3).unwrap();
+    assert_eq!(*value.borrow(), 3);
   }
 }
