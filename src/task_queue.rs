@@ -110,6 +110,7 @@ impl Drop for TaskQueuePermitAcquireFuture {
 
 impl TaskQueuePermitAcquireFuture {
   pub fn new(task_queue: Rc<TaskQueue>) -> Self {
+    // acquire the waker position synchronously
     let waker = Rc::new(TaskQueueTaskWaker::default());
     let mut tasks = task_queue.tasks.borrow_mut();
     if !tasks.is_running {
