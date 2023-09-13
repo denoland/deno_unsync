@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cell::UnsafeCell;
 use std::collections::LinkedList;
 use std::future::Future;
 use std::rc::Rc;
@@ -87,7 +86,7 @@ impl Drop for TaskQueuePermit {
 }
 
 pub struct TaskQueuePermitAcquireFuture {
-  task_queue: FastOptionCell<Rc<TaskQueue>>,
+  task_queue: Option<Rc<TaskQueue>>,
   waker: Option<Rc<TaskQueueTaskWaker>>,
 }
 
@@ -116,7 +115,7 @@ impl TaskQueuePermitAcquireFuture {
       tasks.is_running = true;
       drop(tasks);
       Self {
-        task_queue: FastOptionCell::new(task_queue),
+        task_queue: Some(task_queue),
         waker: None, // avoid boxing for the fast path
       }
     } else {
@@ -124,7 +123,7 @@ impl TaskQueuePermitAcquireFuture {
       tasks.wakers.push_back(waker.clone());
       drop(tasks);
       Self {
-        task_queue: FastOptionCell::new(task_queue),
+        task_queue: Some(task_queue),
         waker: Some(waker),
       }
     }
@@ -135,7 +134,7 @@ impl Future for TaskQueuePermitAcquireFuture {
   type Output = TaskQueuePermit;
 
   fn poll(
-    self: std::pin::Pin<&mut Self>,
+    mut self: std::pin::Pin<&mut Self>,
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
     // check if we're ready to run
@@ -161,28 +160,6 @@ impl Future for TaskQueuePermitAcquireFuture {
       }
 
       std::task::Poll::Pending
-    }
-  }
-}
-
-#[derive(Debug)]
-struct FastOptionCell<T>(UnsafeCell<Option<T>>);
-
-impl<T> Default for FastOptionCell<T> {
-  fn default() -> Self {
-    Self(Default::default())
-  }
-}
-
-impl<T> FastOptionCell<T> {
-  pub fn new(value: T) -> Self {
-    Self(UnsafeCell::new(Some(value)))
-  }
-
-  fn take(&self) -> Option<T> {
-    unsafe {
-      let value = &mut *self.0.get();
-      value.take()
     }
   }
 }
