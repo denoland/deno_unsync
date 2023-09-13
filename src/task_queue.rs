@@ -95,10 +95,10 @@ impl Drop for TaskQueuePermitAcquireFuture {
   fn drop(&mut self) {
     if let Some(task_queue) = self.task_queue.take() {
       if let Some(waker) = self.waker.take() {
-        waker.is_future_dropped.raise();
-
         if waker.is_ready.is_raised() {
           task_queue.raise_next();
+        } else {
+          waker.is_future_dropped.raise();
         }
       } else {
         // this was the first waker, so raise the next one
