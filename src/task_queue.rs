@@ -61,8 +61,9 @@ impl TaskQueue {
           break;
         }
       }
-      tasks.is_running = tasks.wakers.front().is_some();
-      tasks.wakers.pop_front()
+      let front_item = tasks.wakers.pop_front();
+      tasks.is_running = front_item.is_some();
+      front_item
     };
 
     // wake up te next waker
