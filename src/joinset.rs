@@ -65,6 +65,11 @@ impl<T: 'static> JoinSet<T> {
     self.joinset.len()
   }
 
+  /// Returns whether the `JoinSet` is empty.
+  pub fn is_empty(&self) -> bool {
+    self.joinset.is_empty()
+  }
+
   /// Waits until one of the tasks in the set completes and returns its output.
   ///
   /// # Cancel Safety
@@ -87,5 +92,22 @@ impl<T: 'static> JoinSet<T> {
       }
       Poll::Pending => Poll::Pending,
     }
+  }
+
+  /// Waits until one of the tasks in the set completes and returns its output.
+  ///
+  /// Returns `None` if the set is empty.
+  ///
+  /// # Cancel Safety
+  ///
+  /// This method is cancel safe. If `join_next` is used as the event in a `tokio::select!`
+  /// statement and some other branch completes first, it is guaranteed that no tasks were
+  /// removed from this `JoinSet`.
+  pub async fn join_next(&mut self) -> Option<Result<T, JoinError>> {
+    self
+      .joinset
+      .join_next()
+      .await
+      .map(|result| result.map(|res| res.into_inner()))
   }
 }

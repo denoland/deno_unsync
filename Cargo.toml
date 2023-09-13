@@ -11,5 +11,8 @@ readme = "README.md"
 [dependencies]
 tokio = { version = "1", features = ["rt"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
 [lib]
 name = "deno_unsync"
