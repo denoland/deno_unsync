@@ -1,5 +1,6 @@
 mod flag;
 mod joinset;
+mod split;
 mod task;
 mod task_queue;
 
@@ -12,3 +13,10 @@ pub use task::MaskFutureAsSend;
 pub use task_queue::TaskQueue;
 pub use task_queue::TaskQueuePermit;
 pub use task_queue::TaskQueuePermitAcquireFuture;
+pub use split::split_io;
+pub use split::IOReadHalf;
+pub use split::IOWriteHalf;
+
+/// Marker for items that are ![`Send`].
+#[derive(Copy, Clone, Default, Eq, PartialEq, PartialOrd, Ord, Debug, Hash)]
+pub struct UnsendMarker(std::marker::PhantomData<std::sync::MutexGuard<'static, ()>>);
