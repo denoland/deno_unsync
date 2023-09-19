@@ -157,3 +157,23 @@ where
     self.is_write_vectored
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use tokio::io::AsyncReadExt;
+  use tokio::io::AsyncWriteExt;
+
+  #[tokio::test(flavor = "current_thread")]
+  async fn split_duplex() {
+    let (a, b) = tokio::io::duplex(1024);
+    let (mut ar, mut aw) = split_io(a);
+    let (mut br, mut bw) = split_io(b);
+
+    bw.write_i8(123).await.unwrap();
+    assert_eq!(ar.read_i8().await.unwrap(), 123);
+
+    aw.write_i8(123).await.unwrap();
+    assert_eq!(br.read_i8().await.unwrap(), 123);
+  }
+}
