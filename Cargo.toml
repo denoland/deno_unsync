@@ -1,6 +1,6 @@
 [package]
 name = "deno_unsync"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 authors = ["the Deno authors"]
 license = "MIT"
@@ -12,7 +12,7 @@ readme = "README.md"
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt"] }
 
 [lib]
 name = "deno_unsync"
