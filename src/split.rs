@@ -7,7 +7,8 @@ use std::task::Poll;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 
-/// Create a !Send I/O split on top of a stream.
+/// Create a ![`Send`] I/O split on top of a stream. The split reader and writer halves are safe to use
+/// only in a single-threaded context, and are not legal to send to another thread.
 pub fn split_io<S>(stream: S) -> (IOReadHalf<S>, IOWriteHalf<S>)
 where
   S: AsyncRead + AsyncWrite + Unpin,
