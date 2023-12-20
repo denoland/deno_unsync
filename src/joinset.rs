@@ -81,9 +81,7 @@ impl<T: 'static> JoinSet<T> {
     &mut self,
     cx: &mut Context,
   ) -> Poll<Result<T, JoinError>> {
-    // TODO(mmastrac): Use poll_join_next from Tokio
-    let next = std::pin::pin!(self.joinset.join_next());
-    match next.poll(cx) {
+    match self.joinset.poll_join_next(cx) {
       Poll::Ready(Some(res)) => Poll::Ready(res.map(|res| res.into_inner())),
       Poll::Ready(None) => {
         // Stash waker
@@ -109,5 +107,21 @@ impl<T: 'static> JoinSet<T> {
       .join_next()
       .await
       .map(|result| result.map(|res| res.into_inner()))
+  }
+
+  /// Aborts all tasks on this `JoinSet`.
+  ///
+  /// This does not remove the tasks from the `JoinSet`. To wait for the tasks to complete
+  /// cancellation, you should call `join_next` in a loop until the `JoinSet` is empty.
+  pub fn abort_all(&mut self) {
+    self.joinset.abort_all();
+  }
+
+  /// Removes all tasks from this `JoinSet` without aborting them.
+  ///
+  /// The tasks removed by this call will continue to run in the background even if the `JoinSet`
+  /// is dropped.
+  pub fn detach_all(&mut self) {
+    self.joinset.detach_all();
   }
 }
