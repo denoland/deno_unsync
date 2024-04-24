@@ -19,6 +19,10 @@ impl<R> JoinHandle<R> {
   pub fn abort(&self) {
     self.handle.abort()
   }
+
+  pub fn abort_handle(&self) -> tokio::task::AbortHandle {
+    self.handle.abort_handle()
+  }
 }
 
 impl<R> Future for JoinHandle<R> {
