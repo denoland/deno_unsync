@@ -74,6 +74,11 @@ impl<T> Receiver<T> {
   pub fn len(&self) -> usize {
     self.shared.borrow().queue.len()
   }
+
+  /// If the receiver has no pending items.
+  pub fn is_empty(&self) -> bool {
+    self.len() == 0
+  }
 }
 
 struct RecvFuture<'a, T> {
@@ -141,10 +146,12 @@ mod test {
     sender.send(2).unwrap();
     drop(sender);
     assert_eq!(receiver.len(), 2);
+    assert!(!receiver.is_empty());
     assert_eq!(receiver.recv().await, Some(1));
     assert_eq!(receiver.recv().await, Some(2));
     assert_eq!(receiver.recv().await, None);
     assert_eq!(receiver.len(), 0);
+    assert!(receiver.is_empty());
   }
 
   #[tokio::test(flavor = "current_thread")]
