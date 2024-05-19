@@ -97,8 +97,8 @@ struct Shared<T> {
   closed: bool,
 }
 
-/// A ![`Sync`] and ![`Sync`] equivalent to `tokio::sync::channel`.
-pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
+/// A ![`Sync`] and ![`Sync`] equivalent to `tokio::sync::unbounded_channel`.
+pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
   let shared = Rc::new(RefCell::new(Shared {
     queue: VecDeque::new(),
     waker: UnsyncWaker::default(),
@@ -118,9 +118,9 @@ mod test {
 
   use super::*;
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn sends_receives_exits() {
-    let (sender, mut receiver) = channel::<usize>();
+    let (sender, mut receiver) = unbounded_channel::<usize>();
     sender.send(1).unwrap();
     assert_eq!(receiver.recv().await, Some(1));
     sender.send(2).unwrap();
@@ -129,9 +129,9 @@ mod test {
     assert_eq!(receiver.recv().await, None);
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn sends_multiple_then_drop() {
-    let (sender, mut receiver) = channel::<usize>();
+    let (sender, mut receiver) = unbounded_channel::<usize>();
     sender.send(1).unwrap();
     sender.send(2).unwrap();
     drop(sender);
@@ -140,17 +140,17 @@ mod test {
     assert_eq!(receiver.recv().await, None);
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn receiver_dropped_sending() {
-    let (sender, receiver) = channel::<usize>();
+    let (sender, receiver) = unbounded_channel::<usize>();
     drop(receiver);
     let err = sender.send(1).unwrap_err();
     assert_eq!(err.0, 1);
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn receiver_recv_then_drop_sender() {
-    let (sender, mut receiver) = channel::<usize>();
+    let (sender, mut receiver) = unbounded_channel::<usize>();
     let future = crate::task::spawn(async move {
       let value = receiver.recv().await;
       value.is_none()
