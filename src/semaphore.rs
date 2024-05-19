@@ -11,18 +11,39 @@ use std::task::Waker;
 
 use crate::Flag;
 
-struct SemaphoreStateWaker {
+struct WakerWithFutureDroppedState {
   inner: Waker,
   // if the future is dropped then we don't want to wake
   // this waker, but the next one in the queue
   is_future_dropped: Rc<Flag>,
 }
 
+impl WakerWithFutureDroppedState {
+  pub fn new(inner: Waker, is_future_dropped: Rc<Flag>) -> Self {
+    Self {
+      inner,
+      is_future_dropped,
+    }
+  }
+
+  pub fn is_future_dropped(&self) -> bool {
+    self.is_future_dropped.is_raised()
+  }
+
+  pub fn wake(self) {
+    debug_assert!(
+      !self.is_future_dropped.is_raised(),
+      "Waking a future that has been dropped"
+    );
+    self.inner.wake();
+  }
+}
+
 struct SemaphoreState {
   closed: bool,
   max_permits: usize,
   acquired_permits: usize,
-  wakers: VecDeque<SemaphoreStateWaker>,
+  wakers: VecDeque<WakerWithFutureDroppedState>,
 }
 
 pub struct SemaphorePermit(Rc<Semaphore>);
@@ -49,24 +70,27 @@ impl Semaphore {
     }
   }
 
-  pub fn acquire(self: &Rc<Self>) -> impl Future<Output = Result<SemaphorePermit, ()>> {
+  pub fn acquire(
+    self: &Rc<Self>,
+  ) -> impl Future<Output = Result<SemaphorePermit, ()>> {
     AcquireFuture {
       semaphore: self.clone(),
-      dropped_flags: Default::default(),
+      is_future_dropped: Default::default(),
     }
   }
 
   pub fn add_permits(&self, amount: usize) {
     let wakers = {
-      let mut wakers = Vec::with_capacity(amount);
       let mut state = self.state.borrow_mut();
+      let mut wakers =
+        Vec::with_capacity(std::cmp::min(amount, state.wakers.len()));
       state.max_permits += amount;
 
       let mut i = 0;
       while i < amount {
         match state.wakers.pop_front() {
           Some(waker) => {
-            if !waker.is_future_dropped.is_raised() {
+            if !waker.is_future_dropped() {
               wakers.push(waker);
               i += 1;
             }
@@ -76,8 +100,10 @@ impl Semaphore {
       }
       wakers
     };
+
+    // the permits will be acquired when waking the waker
     for waker in wakers {
-      waker.inner.wake();
+      waker.wake();
     }
   }
 
@@ -106,7 +132,9 @@ impl Semaphore {
       std::mem::take(&mut state.wakers)
     };
     for waker in wakers {
-      waker.inner.wake();
+      if !waker.is_future_dropped() {
+        waker.wake();
+      }
     }
   }
 
@@ -122,7 +150,7 @@ impl Semaphore {
       if state.acquired_permits < state.max_permits {
         let mut found_waker = None;
         while let Some(waker) = state.wakers.pop_front() {
-          if !waker.is_future_dropped.is_raised() {
+          if !waker.is_future_dropped() {
             found_waker = Some(waker);
             break;
           }
@@ -134,22 +162,19 @@ impl Semaphore {
     };
 
     if let Some(waker) = maybe_waker {
-      waker.inner.wake();
+      waker.wake();
     }
   }
 }
 
 struct AcquireFuture {
   semaphore: Rc<Semaphore>,
-  dropped_flags: RefCell<Vec<Rc<Flag>>>,
+  is_future_dropped: Rc<Flag>,
 }
 
 impl Drop for AcquireFuture {
   fn drop(&mut self) {
-    let mut flags = self.dropped_flags.borrow_mut();
-    for flag in flags.drain(..) {
-      flag.raise();
-    }
+    self.is_future_dropped.raise();
   }
 }
 
@@ -165,48 +190,25 @@ impl Future for AcquireFuture {
       state.acquired_permits += 1;
       Poll::Ready(Ok(SemaphorePermit(self.semaphore.clone())))
     } else {
-      let is_future_dropped = Rc::new(Flag::default());
-      let waker = SemaphoreStateWaker {
-        inner: cx.waker().clone(),
-        is_future_dropped: is_future_dropped.clone(),
-      };
+      let waker = WakerWithFutureDroppedState::new(
+        cx.waker().clone(),
+        self.is_future_dropped.clone(),
+      );
       state.wakers.push_back(waker);
-      self.dropped_flags.borrow_mut().push(is_future_dropped);
       Poll::Pending
     }
   }
-}
-
-pub struct Notify(Rc<Semaphore>);
-
-impl Default for Notify {
-    fn default() -> Self {
-    Self(Rc::new(Semaphore::new(0)))
-    }
-}
-
-impl Notify {
-  pub fn notify_one(&self) {
-    self.0.release();
-  }
-
-  pub fn notify_all(&self) {
-    let mut state = self.0.state.borrow_mut();
-    let wakers = std::mem::take(&mut state.wakers);
-    for waker in wakers {
-      waker.inner.wake();
-    }
-  }
-
 }
 
 #[cfg(test)]
 mod test {
   use std::time::Duration;
 
+  use crate::Notify;
+
   use super::*;
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn semaphore() {
     let semaphore = Rc::new(Semaphore::new(2));
     let permit1 = semaphore.acquire().await;
@@ -308,5 +310,11 @@ mod test {
       assert_eq!(*notify_complete.borrow(), true);
       drop(permit2);
     }
+  }
+
+  #[tokio::test(flavor = "current_thread")]
+  async fn adding_many_permits_no_capacity_overflow() {
+    let semaphore = Rc::new(Semaphore::new(0));
+    semaphore.add_permits(std::usize::MAX); // should not capacity overflow
   }
 }
