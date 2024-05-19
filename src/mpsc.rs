@@ -69,6 +69,11 @@ impl<T> Receiver<T> {
     }
     .await
   }
+
+  /// Number of pending unread items.
+  pub fn len(&self) -> usize {
+    self.shared.borrow().queue.len()
+  }
 }
 
 struct RecvFuture<'a, T> {
@@ -135,9 +140,11 @@ mod test {
     sender.send(1).unwrap();
     sender.send(2).unwrap();
     drop(sender);
+    assert_eq!(receiver.len(), 2);
     assert_eq!(receiver.recv().await, Some(1));
     assert_eq!(receiver.recv().await, Some(2));
     assert_eq!(receiver.recv().await, None);
+    assert_eq!(receiver.len(), 0);
   }
 
   #[tokio::test(flavor = "current_thread")]
