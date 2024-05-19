@@ -1,5 +1,6 @@
 mod flag;
 mod joinset;
+mod semaphore;
 mod split;
 mod task;
 mod task_queue;
@@ -17,6 +18,8 @@ pub use task::MaskFutureAsSend;
 pub use task_queue::TaskQueue;
 pub use task_queue::TaskQueuePermit;
 pub use task_queue::TaskQueuePermitAcquireFuture;
+pub use semaphore::Semaphore;
+pub use semaphore::SemaphorePermit;
 pub use waker::UnsyncWaker;
 
 /// Marker for items that are ![`Send`].
