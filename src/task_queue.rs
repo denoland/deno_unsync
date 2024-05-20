@@ -1,3 +1,5 @@
+// Copyright 2018-2024 the Deno authors. MIT license.
+
 use std::cell::RefCell;
 use std::collections::LinkedList;
 use std::future::Future;

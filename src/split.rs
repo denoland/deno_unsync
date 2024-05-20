@@ -1,3 +1,5 @@
+// Copyright 2018-2024 the Deno authors. MIT license.
+
 use crate::UnsendMarker;
 use std::cell::Cell;
 use std::cell::UnsafeCell;

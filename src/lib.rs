@@ -1,5 +1,6 @@
 mod flag;
 mod joinset;
+pub mod mpsc;
 mod split;
 mod task;
 mod task_queue;
