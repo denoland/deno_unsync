@@ -66,12 +66,10 @@ where
           }
         }
       }
-    }
 
-    if self.inner.is_none() {
-      Poll::Ready(None)
-    } else {
       Poll::Pending
+    } else {
+      return Poll::Ready(None);
     }
   }
 }
@@ -86,7 +84,7 @@ mod test {
   use super::*;
 
   #[tokio::test(flavor = "current_thread")]
-  async fn completes_first_to_finish() {
+  async fn completes_first_to_finish_time() {
     let mut futures = FuturesUnordered::new();
     futures.push(
       async {
@@ -105,6 +103,42 @@ mod test {
     futures.push(
       async {
         tokio::time::sleep(Duration::from_millis(25)).await;
+        3
+      }
+      .boxed_local(),
+    );
+
+    let first = futures.next().await.unwrap();
+    let second = futures.next().await.unwrap();
+    let third = futures.next().await.unwrap();
+    assert_eq!(first, 3);
+    assert_eq!(second, 2);
+    assert_eq!(third, 1);
+  }
+
+  #[tokio::test(flavor = "current_thread")]
+  async fn completes_first_to_finish_polls() {
+    let mut futures = FuturesUnordered::new();
+    futures.push(
+      async {
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        1
+      }
+      .boxed_local(),
+    );
+    futures.push(
+      async {
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        2
+      }
+      .boxed_local(),
+    );
+    futures.push(
+      async {
+        tokio::task::yield_now().await;
         3
       }
       .boxed_local(),
