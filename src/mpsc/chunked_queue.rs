@@ -1,4 +1,7 @@
-use std::collections::{LinkedList, VecDeque};
+// Copyright 2018-2024 the Deno authors. MIT license.
+
+use std::collections::LinkedList;
+use std::collections::VecDeque;
 
 /// A queue that stores elements in chunks in a linked list
 /// to reduce allocations.
