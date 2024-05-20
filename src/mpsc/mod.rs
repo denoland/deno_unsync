@@ -10,8 +10,8 @@ use std::task::Poll;
 
 mod chunked_queue;
 
-use chunked_queue::ChunkedQueue;
 use crate::UnsyncWaker;
+use chunked_queue::ChunkedQueue;
 
 pub struct SendError<T>(pub T);
 
