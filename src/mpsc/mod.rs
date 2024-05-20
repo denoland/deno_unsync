@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::fmt::Formatter;
 use std::future::Future;
 use std::pin::Pin;
@@ -9,6 +8,9 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 
+mod chunked_queue;
+
+use chunked_queue::ChunkedQueue;
 use crate::UnsyncWaker;
 
 pub struct SendError<T>(pub T);
@@ -102,7 +104,7 @@ impl<'a, T> Future for RecvFuture<'a, T> {
 }
 
 struct Shared<T> {
-  queue: VecDeque<T>,
+  queue: ChunkedQueue<T>,
   waker: UnsyncWaker,
   closed: bool,
 }
@@ -110,7 +112,7 @@ struct Shared<T> {
 /// A ![`Sync`] and ![`Sync`] equivalent to `tokio::sync::unbounded_channel`.
 pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
   let shared = Rc::new(RefCell::new(Shared {
-    queue: VecDeque::new(),
+    queue: ChunkedQueue::default(),
     waker: UnsyncWaker::default(),
     closed: false,
   }));
