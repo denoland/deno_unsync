@@ -126,6 +126,8 @@ pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
 
 #[cfg(test)]
 mod test {
+  use std::time::Duration;
+
   use tokio::join;
 
   use super::*;
@@ -178,5 +180,67 @@ mod test {
     let (first, second) = join!(future, future2);
     assert!(first.unwrap());
     assert!(second.unwrap());
+  }
+
+  #[tokio::test(flavor = "current_thread")]
+  async fn multiple_senders_divided_work() {
+    for receiver_sleep in [None, Some(1)] {
+      for sender_sleep in [None, Some(1)] {
+        for sender_count in [1000, 100, 10, 2, 1] {
+          let (sender, mut receiver) = unbounded_channel::<usize>();
+          let future = crate::task::spawn(async move {
+            let mut values = Vec::with_capacity(1000);
+            for _ in 0..1000 {
+              if let Some(micros) = receiver_sleep {
+                if cfg!(windows) {
+                  // windows min sleep resolution is too slow
+                  tokio::task::yield_now().await;
+                } else {
+                  tokio::time::sleep(Duration::from_micros(micros)).await;
+                }
+              }
+              let value = receiver.recv().await;
+              values.push(value.unwrap());
+            }
+            // both senders should be dropped at this point
+            let value = receiver.recv().await;
+            assert!(value.is_none());
+
+            values.sort();
+            // ensure we received these values
+            for i in 0..1000 {
+              assert_eq!(values[i], i);
+            }
+          });
+
+          let mut futures = Vec::with_capacity(1 + sender_count);
+          futures.push(future);
+          let sender = Rc::new(sender);
+          for sender_index in 0..sender_count {
+            let sender = sender.clone();
+            let batch_count = 1000 / sender_count;
+            futures.push(crate::task::spawn(async move {
+              for i in 0..batch_count {
+                if let Some(micros) = sender_sleep {
+                  if cfg!(windows) {
+                    // windows min sleep resolution is too slow
+                    tokio::task::yield_now().await;
+                  } else {
+                    tokio::time::sleep(Duration::from_micros(micros)).await;
+                  }
+                }
+                sender.send(batch_count * sender_index + i).unwrap();
+              }
+            }));
+          }
+          drop(sender);
+
+          // wait all futures
+          for future in futures {
+            future.await.unwrap();
+          }
+        }
+      }
+    }
   }
 }
