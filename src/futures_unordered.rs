@@ -1,15 +1,15 @@
-use std::collections::LinkedList;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
-use futures::Stream;
+use futures_core::Stream;
 
 struct OneDirectionalLinkedListNode<F> {
   future: F,
   next: Option<Box<OneDirectionalLinkedListNode<F>>>,
 }
 
+/// A ![`Sync`] and ![`Sync`] version of `futures::stream::FuturesUnordered`.
 pub struct LocalFuturesUnordered<F> {
   inner: Option<Box<OneDirectionalLinkedListNode<F>>>,
 }
@@ -19,6 +19,10 @@ impl<F> LocalFuturesUnordered<F> {
       Self {
           inner: None,
       }
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.inner.is_none()
   }
 
   pub fn push(&mut self, future: F) {
