@@ -1,13 +1,14 @@
 mod flag;
+mod futures_unordered;
 mod joinset;
 pub mod mpsc;
 mod split;
-mod futures_unordered;
 mod task;
 mod task_queue;
 mod waker;
 
 pub use flag::Flag;
+pub use futures_unordered::FuturesUnordered;
 pub use joinset::JoinSet;
 pub use split::split_io;
 pub use split::IOReadHalf;
@@ -18,7 +19,6 @@ pub use task::JoinHandle;
 pub use task::MaskFutureAsSend;
 pub use task_queue::TaskQueue;
 pub use task_queue::TaskQueuePermit;
-pub use futures_unordered::LocalFuturesUnordered;
 pub use task_queue::TaskQueuePermitAcquireFuture;
 pub use waker::UnsyncWaker;
 
