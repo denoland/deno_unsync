@@ -10,14 +10,23 @@ struct OneDirectionalLinkedListNode<F> {
 }
 
 /// A ![`Sync`] and ![`Sync`] version of `futures::stream::FuturesUnordered`.
-pub struct FuturesUnordered<F> {
+pub struct FuturesUnordered<F: std::future::Future> {
   len: usize,
   inner: Option<Box<OneDirectionalLinkedListNode<F>>>,
 }
 
-impl<F> FuturesUnordered<F> {
+impl<F: std::future::Future> Default for FuturesUnordered<F> {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl<F: std::future::Future> FuturesUnordered<F> {
   pub fn new() -> Self {
-    Self { len: 0, inner: None }
+    Self {
+      len: 0,
+      inner: None,
+    }
   }
 
   pub fn is_empty(&self) -> bool {
@@ -35,6 +44,16 @@ impl<F> FuturesUnordered<F> {
       next: past,
     }));
     self.len += 1;
+  }
+}
+
+impl<F: std::future::Future> FromIterator<F> for FuturesUnordered<F> {
+  fn from_iter<T: IntoIterator<Item = F>>(iter: T) -> Self {
+    let mut futures = Self::new();
+    for item in iter {
+      futures.push(item);
+    }
+    futures
   }
 }
 
@@ -95,6 +114,30 @@ mod test {
   use futures::StreamExt;
 
   use super::*;
+
+  #[tokio::test(flavor = "current_thread")]
+  async fn handles_into_iter() {
+    let mut futures = Vec::with_capacity(2);
+    futures.push(
+      async {
+        tokio::task::yield_now().await;
+        1
+      }
+      .boxed_local(),
+    );
+    futures.push(
+      async {
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        2
+      }
+      .boxed_local(),
+    );
+    let mut futures = futures.into_iter().collect::<FuturesUnordered<_>>();
+    assert_eq!(futures.next().await, Some(1));
+    assert_eq!(futures.next().await, Some(2));
+    assert_eq!(futures.next().await, None);
+  }
 
   #[tokio::test(flavor = "current_thread")]
   async fn completes_first_to_finish_time() {
