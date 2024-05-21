@@ -11,16 +11,21 @@ struct OneDirectionalLinkedListNode<F> {
 
 /// A ![`Sync`] and ![`Sync`] version of `futures::stream::FuturesUnordered`.
 pub struct FuturesUnordered<F> {
+  len: usize,
   inner: Option<Box<OneDirectionalLinkedListNode<F>>>,
 }
 
 impl<F> FuturesUnordered<F> {
   pub fn new() -> Self {
-    Self { inner: None }
+    Self { len: 0, inner: None }
   }
 
   pub fn is_empty(&self) -> bool {
     self.inner.is_none()
+  }
+
+  pub fn len(&self) -> usize {
+    self.len
   }
 
   pub fn push(&mut self, future: F) {
@@ -29,6 +34,7 @@ impl<F> FuturesUnordered<F> {
       future,
       next: past,
     }));
+    self.len += 1;
   }
 }
 
@@ -42,35 +48,42 @@ where
     mut self: Pin<&mut Self>,
     cx: &mut Context<'_>,
   ) -> Poll<Option<Self::Item>> {
-    if let Some(first) = self.inner.as_mut() {
-      let future = Pin::new(&mut first.future);
-      match future.poll(cx) {
-        Poll::Ready(output) => {
-          self.inner = first.next.take();
-          return Poll::Ready(Some(output));
-        }
-        Poll::Pending => {
-          let mut current = first;
-          while let Some(mut next) = current.next.take() {
-            let future = Pin::new(&mut next.future);
-            match future.poll(cx) {
-              Poll::Ready(output) => {
-                current.next = next.next.take();
-                return Poll::Ready(Some(output));
-              }
-              Poll::Pending => {
-                current.next = Some(next);
-                current = current.next.as_mut().unwrap();
-              }
+    let Some(first) = self.inner.as_mut() else {
+      return Poll::Ready(None);
+    };
+
+    let future = Pin::new(&mut first.future);
+    match future.poll(cx) {
+      Poll::Ready(output) => {
+        self.inner = first.next.take();
+        self.len -= 1;
+        return Poll::Ready(Some(output));
+      }
+      Poll::Pending => {
+        let mut current = first;
+        while let Some(mut next) = current.next.take() {
+          let future = Pin::new(&mut next.future);
+          match future.poll(cx) {
+            Poll::Ready(output) => {
+              current.next = next.next.take();
+              self.len -= 1;
+              return Poll::Ready(Some(output));
+            }
+            Poll::Pending => {
+              current.next = Some(next);
+              current = current.next.as_mut().unwrap();
             }
           }
         }
       }
-
-      Poll::Pending
-    } else {
-      return Poll::Ready(None);
     }
+
+    Poll::Pending
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    let len = self.len();
+    (len, Some(len))
   }
 }
 
@@ -143,10 +156,16 @@ mod test {
       }
       .boxed_local(),
     );
+    assert_eq!(futures.len(), 3);
 
     let first = futures.next().await.unwrap();
+    assert_eq!(futures.len(), 2);
     let second = futures.next().await.unwrap();
+    assert_eq!(futures.len(), 1);
+    assert!(!futures.is_empty());
     let third = futures.next().await.unwrap();
+    assert_eq!(futures.len(), 0);
+    assert!(futures.is_empty());
     assert_eq!(first, 3);
     assert_eq!(second, 2);
     assert_eq!(third, 1);
