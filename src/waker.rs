@@ -1,10 +1,12 @@
+// Copyright 2018-2024 the Deno authors. MIT license.
+
 use std::cell::UnsafeCell;
 use std::task::Waker;
 
 use crate::UnsendMarker;
 
-#[derive(Default)]
 /// A ![`Sync`] and ![`Sync`] equivalent to `AtomicWaker`.
+#[derive(Default)]
 pub struct UnsyncWaker {
   waker: UnsafeCell<Option<Waker>>,
   _unsend_marker: UnsendMarker,

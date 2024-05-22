@@ -1,3 +1,5 @@
+// Copyright 2018-2024 the Deno authors. MIT license.
+
 use std::cell::Cell;
 
 /// A flag with interior mutability that can be raised or lowered.
