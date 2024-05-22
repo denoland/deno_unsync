@@ -1,5 +1,7 @@
 mod flag;
 mod joinset;
+mod notify;
+mod semaphore;
 pub mod mpsc;
 mod split;
 mod task;
@@ -8,6 +10,9 @@ mod waker;
 
 pub use flag::Flag;
 pub use joinset::JoinSet;
+pub use notify::Notify;
+pub use semaphore::Semaphore;
+pub use semaphore::SemaphorePermit;
 pub use split::split_io;
 pub use split::IOReadHalf;
 pub use split::IOWriteHalf;
