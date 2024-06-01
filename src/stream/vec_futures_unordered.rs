@@ -3,6 +3,7 @@
 use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 use std::task::RawWaker;
@@ -36,8 +37,8 @@ impl SharedState {
 }
 
 struct FutureData<F: std::future::Future> {
-  future: Option<F>,
-  child_state: *const ChildWakerState,
+  future: F,
+  child_state: Rc<ChildWakerState>,
 }
 
 /// A ![`Sync`] and ![`Sync`] version of `futures::stream::FuturesUnordered`
@@ -46,32 +47,19 @@ struct FutureData<F: std::future::Future> {
 /// This is useful if you know the number of the futures you
 /// want to collect ahead of time.
 pub struct VecFuturesUnordered<F: std::future::Future> {
-  futures: Vec<FutureData<F>>,
-  shared_state: *const SharedState,
+  futures: Vec<Option<FutureData<F>>>,
+  shared_state: Rc<SharedState>,
   len: usize,
-}
-
-impl<F: std::future::Future> Drop for VecFuturesUnordered<F> {
-  fn drop(&mut self) {
-    unsafe {
-      // Deallocate shared_state
-      let _ = Box::from_raw(self.shared_state as *mut SharedState);
-      // Deallocate each child_state
-      for future_data in self.futures.drain(..) {
-        let _ = Box::from_raw(future_data.child_state as *mut ChildWakerState);
-      }
-    }
-  }
 }
 
 impl<F: std::future::Future> VecFuturesUnordered<F> {
   pub fn with_capacity(capacity: usize) -> Self {
     Self {
       futures: Vec::with_capacity(capacity),
-      shared_state: Box::into_raw(Box::new(SharedState {
+      shared_state: Rc::new(SharedState {
         parent_waker: ParentWaker::default(),
         indexes_to_poll: UnsafeCell::new(VecDeque::with_capacity(capacity)),
-      })),
+      }),
       len: 0,
     }
   }
@@ -86,15 +74,15 @@ impl<F: std::future::Future> VecFuturesUnordered<F> {
 
   pub fn push(&mut self, future: F) {
     let index = self.futures.len();
-    self.futures.push(FutureData {
-      future: Some(future),
-      child_state: Box::into_raw(Box::new(ChildWakerState {
+    self.futures.push(Some(FutureData {
+      future,
+      child_state: Rc::new(ChildWakerState {
         index,
         woken: Flag::raised(),
-        shared_state: self.shared_state,
-      })),
-    });
-    unsafe { (&*self.shared_state).push_index(index); }
+        shared_state: self.shared_state.clone(),
+      }),
+    }));
+    self.shared_state.push_index(index);
     self.len += 1;
   }
 }
@@ -113,20 +101,18 @@ where
       return Poll::Ready(None);
     }
 
-    unsafe {
-      (&*self.shared_state).parent_waker.set(cx.waker().clone());
-    }
+    self.shared_state.parent_waker.set(cx.waker().clone());
 
-    while let Some(index) = unsafe { (&*self.shared_state).pop_index() } {
-      let future_data = &mut self.futures[index];
-      let was_lowered = unsafe { (&*future_data.child_state).woken.lower() };
+    while let Some(index) = self.shared_state.pop_index() {
+      let future_data = self.futures[index].as_mut().unwrap();
+      let was_lowered = future_data.child_state.woken.lower();
       debug_assert!(was_lowered);
-      let child_waker = create_child_waker(future_data.child_state);
+      let child_waker = create_child_waker(future_data.child_state.clone());
       let mut child_cx = Context::from_waker(&child_waker);
-      let future = Pin::new(future_data.future.as_mut().unwrap());
+      let future = Pin::new(&mut future_data.future);
       match future.poll(&mut child_cx) {
         Poll::Ready(output) => {
-          self.futures[index].future = None;
+          self.futures[index] = None;
           self.len -= 1;
           return Poll::Ready(Some(output))
         },
@@ -147,12 +133,12 @@ where
 struct ChildWakerState {
   index: usize,
   woken: Flag,
-  shared_state: *const SharedState,
+  shared_state: Rc<SharedState>,
 }
 
-fn create_child_waker(state: *const ChildWakerState) -> Waker {
+fn create_child_waker(state: Rc<ChildWakerState>) -> Waker {
   let raw_waker = RawWaker::new(
-      state as *const (),
+      Rc::into_raw(state) as *const (),
       &RawWakerVTable::new(
           clone_waker,
           wake_waker,
@@ -164,29 +150,32 @@ fn create_child_waker(state: *const ChildWakerState) -> Waker {
 }
 
 unsafe fn clone_waker(data: *const ()) -> RawWaker {
-  RawWaker::new(data, &RawWakerVTable::new(clone_waker, wake_waker, wake_by_ref_waker, drop_waker))
+  let shared_state = Rc::from_raw(data as *const ChildWakerState);
+  let _ = Rc::into_raw(Rc::clone(&shared_state)); // Increment the reference count
+  RawWaker::new(Rc::into_raw(shared_state) as *const (), &RawWakerVTable::new(clone_waker, wake_waker, wake_by_ref_waker, drop_waker))
 }
 
 unsafe fn wake_waker(data: *const ()) {
-  let state = &*(data as *const ChildWakerState);
-  let shared_state = &*state.shared_state;
+  let state = Rc::from_raw(data as *const ChildWakerState);
   if state.woken.raise() {
-    shared_state.push_index(state.index);
+    state.shared_state.push_index(state.index);
   }
-  shared_state.parent_waker.wake();
+  state.shared_state.parent_waker.wake();
+  let _ = Rc::into_raw(state);
 }
 
 unsafe fn wake_by_ref_waker(data: *const ()) {
-  let state = &*(data as *const ChildWakerState);
-  let shared_state = &*state.shared_state;
+  let state = Rc::from_raw(data as *const ChildWakerState);
   if state.woken.raise() {
-    shared_state.push_index(state.index);
+    state.shared_state.push_index(state.index);
   }
-  shared_state.parent_waker.wake_by_ref();
+  state.shared_state.parent_waker.wake_by_ref();
+  let _ = Rc::into_raw(state);
 }
 
-unsafe fn drop_waker(_data: *const ()) {
-  // do nothing, the main FuturesUnordered will drop the ChildWakerState
+unsafe fn drop_waker(data: *const ()) {
+  // decrement the rc
+  let _ = Rc::from_raw(data as *const ChildWakerState);
 }
 
 #[cfg(test)]
