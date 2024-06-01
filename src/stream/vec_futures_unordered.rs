@@ -52,6 +52,18 @@ pub struct VecFuturesUnordered<F: std::future::Future> {
   len: usize,
 }
 
+impl<F: std::future::Future> Drop for VecFuturesUnordered<F> {
+    fn drop(&mut self) {
+      if self.len == 0 {
+        // if the length is 0 then we can skip running the destructor
+        // for each item in the vector because we know they'll all be
+        // None
+        let futures = std::mem::take(&mut self.futures);
+        std::mem::forget(futures);
+      }
+    }
+}
+
 impl<F: std::future::Future> VecFuturesUnordered<F> {
   pub fn with_capacity(capacity: usize) -> Self {
     Self {
@@ -175,7 +187,7 @@ unsafe fn wake_by_ref_waker(data: *const ()) {
     state.shared_state.push_index(state.index);
   }
   state.shared_state.parent_waker.wake_by_ref();
-  let _ = Rc::into_raw(state);
+  let _ = Rc::into_raw(state); // keep it alive
 }
 
 unsafe fn drop_waker(data: *const ()) {
