@@ -1,6 +1,9 @@
+// Copyright 2018-2024 the Deno authors. MIT license.
+
 mod flag;
 mod joinset;
 pub mod mpsc;
+pub mod stream;
 mod split;
 mod task;
 mod task_queue;

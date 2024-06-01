@@ -9,9 +9,11 @@ description = "A collection of adapters to make working with Tokio single-thread
 readme = "README.md"
 
 [dependencies]
+futures-core = "0.3.30"
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
+futures = "0.3.30"
 tokio = { version = "1", features = ["io-util", "macros", "rt", "time"] }
 
 [lib]
