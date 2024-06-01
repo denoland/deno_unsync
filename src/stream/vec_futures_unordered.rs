@@ -233,6 +233,7 @@ mod test {
     assert_eq!(sum, 49995000);
   }
 
+  #[cfg(not(miri))]
   #[tokio::test(flavor = "current_thread")]
   async fn completes_first_to_finish_time() {
     let mut futures = VecFuturesUnordered::with_capacity(3);

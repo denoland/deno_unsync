@@ -182,6 +182,7 @@ mod test {
     assert!(second.unwrap());
   }
 
+  #[cfg(not(miri))]
   #[tokio::test(flavor = "current_thread")]
   async fn multiple_senders_divided_work() {
     for receiver_sleep in [None, Some(1)] {
