@@ -1,3 +1,5 @@
+// Copyright 2018-2024 the Deno authors. MIT license.
+
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
