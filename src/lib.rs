@@ -2,6 +2,7 @@
 
 mod flag;
 mod joinset;
+mod internal;
 pub mod mpsc;
 pub mod stream;
 mod split;
