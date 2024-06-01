@@ -168,15 +168,16 @@ impl Future for TaskQueuePermitAcquireFuture {
 
 #[cfg(test)]
 mod tests {
-  use std::sync::Arc;
-  use std::sync::Mutex;
-
   use crate::JoinSet;
 
   use super::*;
 
+  #[cfg(not(miri))] // tokio was calling clock_gettime in this test for some reason
   #[tokio::test]
   async fn task_queue_runs_one_after_other() {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
     let task_queue = Rc::new(TaskQueue::default());
     let mut set = JoinSet::default();
     let data = Arc::new(Mutex::new(0));
