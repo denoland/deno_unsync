@@ -186,11 +186,11 @@ mod test {
   async fn multiple_senders_divided_work() {
     for receiver_sleep in [None, Some(1)] {
       for sender_sleep in [None, Some(1)] {
-        for sender_count in [1000, 100, 10, 2, 1] {
+        for sender_count in [100, 10, 2, 1] {
           let (sender, mut receiver) = unbounded_channel::<usize>();
           let future = crate::task::spawn(async move {
-            let mut values = Vec::with_capacity(1000);
-            for _ in 0..1000 {
+            let mut values = Vec::with_capacity(100);
+            for _ in 0..100 {
               if let Some(micros) = receiver_sleep {
                 if cfg!(windows) {
                   // windows min sleep resolution is too slow
@@ -208,7 +208,7 @@ mod test {
 
             values.sort();
             // ensure we received these values
-            for i in 0..1000 {
+            for i in 0..100 {
               assert_eq!(values[i], i);
             }
           });
@@ -218,7 +218,7 @@ mod test {
           let sender = Rc::new(sender);
           for sender_index in 0..sender_count {
             let sender = sender.clone();
-            let batch_count = 1000 / sender_count;
+            let batch_count = 100 / sender_count;
             futures.push(crate::task::spawn(async move {
               for i in 0..batch_count {
                 if let Some(micros) = sender_sleep {

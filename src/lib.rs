@@ -2,10 +2,9 @@
 
 mod flag;
 mod joinset;
-mod internal;
 pub mod mpsc;
-pub mod stream;
 mod split;
+pub mod stream;
 mod task;
 mod task_queue;
 mod waker;

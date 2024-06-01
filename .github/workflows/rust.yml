@@ -15,8 +15,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    - uses: dsherret/rust-toolchain-file@v1
+    - run: rustup install nightly
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Run tests (miri)
+      run: cargo +nightly miri test

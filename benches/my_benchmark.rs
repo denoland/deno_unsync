@@ -4,19 +4,35 @@ use futures::{stream::FuturesUnordered, FutureExt, StreamExt as _};
 
 // const LEN: usize = 100_000;
 // const SUM: usize = 4999950000;
-const LEN: usize = 100;
-const SUM: usize = 4950;
+// const LEN: usize = 10;
+// const SUM: usize = 45;
+// const LEN: usize = 1_000;
+// const SUM: usize = 499500;
+const LEN: usize = 10_000;
+const SUM: usize = 49995000;
 
 async fn send_many_tasks_unsync() {
   let mut futures = VecFuturesUnordered::with_capacity(LEN);
   for i in 0..LEN {
-    futures.push(async move {
-      if i % 2 == 0 {
+    futures.push(
+      async move {
+        if i % 2 == 0 {
+          tokio::task::yield_now().await;
+        }
+        if i % 4 == 0 {
+          tokio::task::yield_now().await;
+        }
+        if i % 8 == 0 {
+          tokio::task::yield_now().await;
+        }
+        if i % 16 == 0 {
+          tokio::task::yield_now().await;
+        }
         tokio::task::yield_now().await;
+        i
       }
-      tokio::task::yield_now().await;
-      i
-    }.boxed_local());
+      .boxed_local(),
+    );
   }
 
   let mut sum = 0;
@@ -29,13 +45,25 @@ async fn send_many_tasks_unsync() {
 async fn send_many_tasks_sync() {
   let mut futures = FuturesUnordered::new();
   for i in 0..LEN {
-    futures.push(async move {
-      if i % 2 == 0 {
+    futures.push(
+      async move {
+        if i % 2 == 0 {
+          tokio::task::yield_now().await;
+        }
+        if i % 4 == 0 {
+          tokio::task::yield_now().await;
+        }
+        if i % 8 == 0 {
+          tokio::task::yield_now().await;
+        }
+        if i % 16 == 0 {
+          tokio::task::yield_now().await;
+        }
         tokio::task::yield_now().await;
+        i
       }
-      tokio::task::yield_now().await;
-      i
-    }.boxed_local());
+      .boxed_local(),
+    );
   }
 
   let mut sum = 0;
