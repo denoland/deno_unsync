@@ -8,6 +8,11 @@ use std::cell::Cell;
 pub struct Flag(Cell<bool>);
 
 impl Flag {
+  /// Creates a new flag that's raised.
+  pub fn raised() -> Self {
+    Self(Cell::new(true))
+  }
+
   /// Raises the flag returning if raised.
   pub fn raise(&self) -> bool {
     !self.0.replace(true)
