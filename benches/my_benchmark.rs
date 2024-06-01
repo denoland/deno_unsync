@@ -2,8 +2,10 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use deno_unsync::stream::VecFuturesUnordered;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt as _};
 
-const LEN: usize = 1_000;
-const SUM: usize = 499500;
+// const LEN: usize = 100_000;
+// const SUM: usize = 4999950000;
+const LEN: usize = 100;
+const SUM: usize = 4950;
 
 async fn send_many_tasks_unsync() {
   let mut futures = VecFuturesUnordered::with_capacity(LEN);
