@@ -150,7 +150,7 @@ fn create_child_waker(state: Rc<ChildWakerState>) -> Waker {
 
 unsafe fn clone_waker(data: *const ()) -> RawWaker {
   let shared_state = Rc::from_raw(data as *const ChildWakerState);
-  let _ = Rc::into_raw(Rc::clone(&shared_state)); // Increment the reference count
+  let _ = Rc::into_raw(Rc::clone(&shared_state)); // inc ref count
   RawWaker::new(
     Rc::into_raw(shared_state) as *const (),
     &RawWakerVTable::new(
