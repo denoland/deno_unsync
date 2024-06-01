@@ -1,6 +1,6 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -17,16 +17,22 @@ use crate::Flag;
 
 struct SharedState {
   parent_waker: ParentWaker,
-  indexes_to_poll: RefCell<VecDeque<usize>>,
+  indexes_to_poll: UnsafeCell<VecDeque<usize>>,
 }
 
 impl SharedState {
   pub fn push_index(&self, index: usize) {
-    self.indexes_to_poll.borrow_mut().push_back(index);
+    unsafe {
+      let indexes = &mut *self.indexes_to_poll.get();
+      indexes.push_back(index);
+    }
   }
 
   pub fn pop_index(&self) -> Option<usize> {
-    self.indexes_to_poll.borrow_mut().pop_front()
+    unsafe {
+      let indexes = &mut *self.indexes_to_poll.get();
+      indexes.pop_front()
+    }
   }
 }
 
@@ -52,7 +58,7 @@ impl<F: std::future::Future> VecFuturesUnordered<F> {
       futures: Vec::with_capacity(capacity),
       shared_state: Rc::new(SharedState {
         parent_waker: ParentWaker::default(),
-        indexes_to_poll: RefCell::new(VecDeque::with_capacity(capacity)),
+        indexes_to_poll: UnsafeCell::new(VecDeque::with_capacity(capacity)),
       }),
       len: 0,
     }
@@ -99,7 +105,8 @@ where
 
     while let Some(index) = self.shared_state.pop_index() {
       let future_data = self.futures[index].as_mut().unwrap();
-      debug_assert!(future_data.child_state.woken.lower());
+      let was_lowered = future_data.child_state.woken.lower();
+      debug_assert!(was_lowered);
       let child_waker = create_child_waker(future_data.child_state.clone());
       let mut child_cx = Context::from_waker(&child_waker);
       let future = Pin::new(&mut future_data.future);
@@ -145,7 +152,7 @@ fn create_child_waker(state: Rc<ChildWakerState>) -> Waker {
 unsafe fn clone_waker(data: *const ()) -> RawWaker {
   let shared_state = Rc::from_raw(data as *const ChildWakerState);
   let _ = Rc::into_raw(Rc::clone(&shared_state)); // Increment the reference count
-  RawWaker::new(data, &RawWakerVTable::new(clone_waker, wake_waker, wake_by_ref_waker, drop_waker))
+  RawWaker::new(Rc::into_raw(shared_state) as *const (), &RawWakerVTable::new(clone_waker, wake_waker, wake_by_ref_waker, drop_waker))
 }
 
 unsafe fn wake_waker(data: *const ()) {
@@ -193,6 +200,30 @@ mod test {
 
     let first = futures.next().await.unwrap();
     assert_eq!(first, 1);
+  }
+
+  #[tokio::test(flavor = "current_thread")]
+  async fn many_yielded() {
+    let len = 10_000;
+    let mut futures = VecFuturesUnordered::with_capacity(len);
+    for i in 0..len {
+      futures.push(
+        async move {
+          tokio::task::yield_now().await;
+          i
+        }
+        .boxed_local(),
+      );
+      assert_eq!(futures.len(), i + 1);
+    }
+    let mut sum = 0;
+    let mut expected_len = len;
+    while let Some(value) = futures.next().await {
+      sum += value;
+      expected_len -= 1;
+      assert_eq!(futures.len(), expected_len);
+    }
+    assert_eq!(sum, 49995000);
   }
 
   #[tokio::test(flavor = "current_thread")]
