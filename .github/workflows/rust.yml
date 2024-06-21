@@ -33,4 +33,5 @@ jobs:
     - run: rustup install nightly
     - run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu miri
     - name: Tests (miri)
-      run: cargo +nightly miri test
+      # opt into only specific tests because this takes a while to run
+      run: cargo +nightly miri test future

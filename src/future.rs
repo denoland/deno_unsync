@@ -226,21 +226,21 @@ mod test {
 
   use super::LocalFutureExt;
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn test_shared_local_future() {
     let shared = super::SharedLocal::new(Box::pin(async { 42 }));
     assert_eq!(shared.clone().await, 42);
     assert_eq!(shared.await, 42);
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn test_shared_local() {
     let shared = async { 42 }.shared_local();
     assert_eq!(shared.clone().await, 42);
     assert_eq!(shared.await, 42);
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "current_thread")]
   async fn multiple_tasks_waiting() {
     let notify = Arc::new(Notify::new());
 
