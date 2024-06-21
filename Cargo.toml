@@ -12,7 +12,7 @@ readme = "README.md"
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["io-util", "macros", "rt", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync"] }
 
 [lib]
 name = "deno_unsync"
