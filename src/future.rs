@@ -35,6 +35,7 @@ impl<
   }
 }
 
+/// A !Send-friendly future whose result can be awaited multiple times.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SharedLocal<TFuture: Future<Output = TOutput>, TOutput: Clone>(
   Rc<RefCell<FutureOrResult<TFuture, TOutput>>>,
