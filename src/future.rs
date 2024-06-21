@@ -8,28 +8,26 @@ use std::rc::Rc;
 impl<T: ?Sized> LocalFutureExt for T where T: Future {}
 
 pub trait LocalFutureExt: std::future::Future {
-  fn shared_local(self) -> SharedLocal<Self, Self::Output>
+  fn shared_local(self) -> SharedLocal<Self::Output>
   where
-    Self: Sized,
+    Self: Sized + 'static,
     Self::Output: Clone,
   {
-    SharedLocal::new(self)
+    SharedLocal::new(Box::pin(self))
   }
 }
 
-enum FutureOrResult<TFuture: Future<Output = TOutput>, TOutput: Clone> {
-  Future(Pin<Box<TFuture>>),
+enum FutureOrResult<TOutput: Clone> {
+  Future(Pin<Box<dyn Future<Output = TOutput>>>),
   Result(TOutput),
 }
 
-impl<
-    TFuture: Future<Output = TOutput> + std::fmt::Debug,
-    TOutput: Clone + std::fmt::Debug,
-  > std::fmt::Debug for FutureOrResult<TFuture, TOutput>
+impl<TOutput: Clone + std::fmt::Debug> std::fmt::Debug
+  for FutureOrResult<TOutput>
 {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Future(arg0) => f.debug_tuple("Future").field(arg0).finish(),
+      Self::Future(_) => f.debug_tuple("Future").field(&"<pending>").finish(),
       Self::Result(arg0) => f.debug_tuple("Result").field(arg0).finish(),
     }
   }
@@ -37,41 +35,29 @@ impl<
 
 /// A !Send-friendly future whose result can be awaited multiple times.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct SharedLocal<TFuture: Future<Output = TOutput>, TOutput: Clone>(
-  Rc<RefCell<FutureOrResult<TFuture, TOutput>>>,
-);
+pub struct SharedLocal<TOutput: Clone>(Rc<RefCell<FutureOrResult<TOutput>>>);
 
-impl<TFuture: Future<Output = TOutput>, TOutput: Clone> Clone
-  for SharedLocal<TFuture, TOutput>
-{
+impl<TOutput: Clone> Clone for SharedLocal<TOutput> {
   fn clone(&self) -> Self {
     Self(self.0.clone())
   }
 }
 
-impl<
-    TFuture: Future<Output = TOutput> + std::fmt::Debug,
-    TOutput: Clone + std::fmt::Debug,
-  > std::fmt::Debug for SharedLocal<TFuture, TOutput>
+impl<TOutput: Clone + std::fmt::Debug> std::fmt::Debug
+  for SharedLocal<TOutput>
 {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_tuple("SharedLocal").field(&self.0).finish()
   }
 }
 
-impl<TFuture: Future<Output = TOutput>, TOutput: Clone>
-  SharedLocal<TFuture, TOutput>
-{
-  pub fn new(future: TFuture) -> Self {
-    SharedLocal(Rc::new(RefCell::new(FutureOrResult::Future(Box::pin(
-      future,
-    )))))
+impl<TOutput: Clone> SharedLocal<TOutput> {
+  pub fn new(future: Pin<Box<dyn Future<Output = TOutput>>>) -> Self {
+    SharedLocal(Rc::new(RefCell::new(FutureOrResult::Future(future))))
   }
 }
 
-impl<TFuture: Future<Output = TOutput>, TOutput: Clone> std::future::Future
-  for SharedLocal<TFuture, TOutput>
-{
+impl<TOutput: Clone> std::future::Future for SharedLocal<TOutput> {
   type Output = TOutput;
 
   fn poll(
@@ -100,7 +86,7 @@ mod test {
 
   #[tokio::test]
   async fn test_shared_local_future() {
-    let shared = super::SharedLocal::new(async { 42 });
+    let shared = super::SharedLocal::new(Box::pin(async { 42 }));
     assert_eq!(shared.clone().await, 42);
     assert_eq!(shared.await, 42);
   }
