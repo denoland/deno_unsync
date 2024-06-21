@@ -63,7 +63,9 @@ impl<TFuture: Future<Output = TOutput>, TOutput: Clone>
   SharedLocal<TFuture, TOutput>
 {
   pub fn new(future: TFuture) -> Self {
-    SharedLocal(Rc::new(RefCell::new(FutureOrResult::Future(Box::pin(future)))))
+    SharedLocal(Rc::new(RefCell::new(FutureOrResult::Future(Box::pin(
+      future,
+    )))))
   }
 }
 
@@ -80,14 +82,13 @@ impl<TFuture: Future<Output = TOutput>, TOutput: Clone> std::future::Future
 
     let mut inner = self.0.borrow_mut();
     match &mut *inner {
-      FutureOrResult::Future(fut) => {
-        match fut.as_mut().poll(cx) {
+      FutureOrResult::Future(fut) => match fut.as_mut().poll(cx) {
         Poll::Ready(result) => {
           *inner = FutureOrResult::Result(result.clone());
           Poll::Ready(result)
         }
         Poll::Pending => Poll::Pending,
-      }},
+      },
       FutureOrResult::Result(result) => Poll::Ready(result.clone()),
     }
   }
