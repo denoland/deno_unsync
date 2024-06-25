@@ -11,12 +11,27 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    - uses: dsherret/rust-toolchain-file@v1
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
+      run: cargo build
+    - name: Format
+      run: cargo fmt -- --check
+    - name: Lint
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    - name: Test
       run: cargo test --verbose
+
+  miri:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - run: rustup install nightly
+    - run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu miri
+    - name: Tests (miri)
+      # opt into only specific tests because this takes a while to run
+      run: cargo +nightly miri test future::test

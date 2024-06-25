@@ -126,8 +126,6 @@ pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
 
 #[cfg(test)]
 mod test {
-  use std::time::Duration;
-
   use tokio::join;
 
   use super::*;
@@ -184,19 +182,16 @@ mod test {
 
   #[tokio::test(flavor = "current_thread")]
   async fn multiple_senders_divided_work() {
-    for receiver_sleep in [None, Some(1)] {
-      for sender_sleep in [None, Some(1)] {
+    for receiver_ticks in [None, Some(1), Some(10)] {
+      for sender_ticks in [None, Some(1), Some(10)] {
         for sender_count in [1000, 100, 10, 2, 1] {
           let (sender, mut receiver) = unbounded_channel::<usize>();
           let future = crate::task::spawn(async move {
             let mut values = Vec::with_capacity(1000);
             for _ in 0..1000 {
-              if let Some(micros) = receiver_sleep {
-                if cfg!(windows) {
-                  // windows min sleep resolution is too slow
+              if let Some(ticks) = receiver_ticks {
+                for _ in 0..ticks {
                   tokio::task::yield_now().await;
-                } else {
-                  tokio::time::sleep(Duration::from_micros(micros)).await;
                 }
               }
               let value = receiver.recv().await;
@@ -208,6 +203,7 @@ mod test {
 
             values.sort();
             // ensure we received these values
+            #[allow(clippy::needless_range_loop)]
             for i in 0..1000 {
               assert_eq!(values[i], i);
             }
@@ -221,12 +217,9 @@ mod test {
             let batch_count = 1000 / sender_count;
             futures.push(crate::task::spawn(async move {
               for i in 0..batch_count {
-                if let Some(micros) = sender_sleep {
-                  if cfg!(windows) {
-                    // windows min sleep resolution is too slow
+                if let Some(ticks) = sender_ticks {
+                  for _ in 0..ticks {
                     tokio::task::yield_now().await;
-                  } else {
-                    tokio::time::sleep(Duration::from_micros(micros)).await;
                   }
                 }
                 sender.send(batch_count * sender_index + i).unwrap();
