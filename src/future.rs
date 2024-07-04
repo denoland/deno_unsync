@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
+use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
@@ -9,7 +10,6 @@ use std::task::Context;
 use std::task::RawWaker;
 use std::task::RawWakerVTable;
 use std::task::Waker;
-use parking_lot::Mutex;
 
 use crate::Flag;
 
