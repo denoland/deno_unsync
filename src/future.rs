@@ -126,8 +126,7 @@ where
     let mut inner = self.0.data.borrow_mut();
     match &mut inner.future_or_output {
       FutureOrOutput::Future(fut) => {
-        let waker = cx.waker().clone();
-        self.0.child_waker_state.wakers.push(waker);
+        self.0.child_waker_state.wakers.push(cx.waker().clone());
         if self.0.child_waker_state.can_poll.lower() {
           let child_waker =
             create_child_waker(self.0.child_waker_state.clone());
