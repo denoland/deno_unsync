@@ -126,12 +126,10 @@ where
     let mut inner = self.0.data.borrow_mut();
     match &mut inner.future_or_output {
       FutureOrOutput::Future(fut) => {
-        self
-          .0
-          .child_waker_state
-          .wakers
-          .borrow_mut()
-          .push(cx.waker().clone());
+        {
+          let mut wakers = self.0.child_waker_state.wakers.borrow_mut();
+          wakers.push(cx.waker().clone());
+        }
         if self.0.child_waker_state.can_poll.lower() {
           let child_waker =
             create_child_waker(self.0.child_waker_state.clone());
@@ -141,9 +139,10 @@ where
             Poll::Ready(result) => {
               inner.future_or_output = FutureOrOutput::Output(result.clone());
               drop(inner); // stop borrow_mut
-              let wakers = std::mem::take(
-                &mut *self.0.child_waker_state.wakers.borrow_mut(),
-              );
+              let wakers = {
+                let mut wakers = self.0.child_waker_state.wakers.borrow_mut();
+                std::mem::take(&mut *wakers)
+              };
               for waker in wakers {
                 waker.wake();
               }
@@ -207,7 +206,10 @@ unsafe fn wake_waker(data: *const ()) {
 unsafe fn wake_by_ref_waker(data: *const ()) {
   let state = Rc::from_raw(data as *const ChildWakerState);
   state.can_poll.raise();
-  let wakers = state.wakers.borrow().clone();
+  let wakers = {
+    let wakers = state.wakers.borrow();
+    wakers.clone()
+  };
   for waker in wakers {
     waker.wake_by_ref();
   }
