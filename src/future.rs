@@ -11,7 +11,7 @@ use std::task::RawWaker;
 use std::task::RawWakerVTable;
 use std::task::Waker;
 
-use crate::Flag;
+use crate::AtomicFlag;
 
 impl<T: ?Sized> LocalFutureExt for T where T: Future {}
 
@@ -106,7 +106,7 @@ where
         future_or_output: FutureOrOutput::Future(future),
       }),
       child_waker_state: Arc::new(ChildWakerState {
-        can_poll: Flag::raised(),
+        can_poll: AtomicFlag::raised(),
         wakers: Default::default(),
       }),
     }))
@@ -175,7 +175,7 @@ impl WakerStore {
 
 #[derive(Debug)]
 struct ChildWakerState {
-  can_poll: Flag,
+  can_poll: AtomicFlag,
   wakers: WakerStore,
 }
 
