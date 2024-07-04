@@ -4,10 +4,12 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Context;
 use std::task::RawWaker;
 use std::task::RawWakerVTable;
 use std::task::Waker;
+use parking_lot::Mutex;
 
 use crate::Flag;
 
@@ -57,7 +59,7 @@ where
 
 struct SharedLocalInner<TFuture: Future> {
   data: RefCell<SharedLocalData<TFuture>>,
-  child_waker_state: Rc<ChildWakerState>,
+  child_waker_state: Arc<ChildWakerState>,
 }
 
 impl<TFuture: Future> std::fmt::Debug for SharedLocalInner<TFuture>
@@ -103,7 +105,7 @@ where
       data: RefCell::new(SharedLocalData {
         future_or_output: FutureOrOutput::Future(future),
       }),
-      child_waker_state: Rc::new(ChildWakerState {
+      child_waker_state: Arc::new(ChildWakerState {
         can_poll: Flag::raised(),
         wakers: Default::default(),
       }),
@@ -154,20 +156,20 @@ where
 }
 
 #[derive(Debug, Default)]
-struct WakerStore(RefCell<Vec<Waker>>);
+struct WakerStore(Mutex<Vec<Waker>>);
 
 impl WakerStore {
   pub fn take_all(&self) -> Vec<Waker> {
-    let mut wakers = self.0.borrow_mut();
+    let mut wakers = self.0.lock();
     std::mem::take(&mut *wakers)
   }
 
   pub fn clone_all(&self) -> Vec<Waker> {
-    self.0.borrow().clone()
+    self.0.lock().clone()
   }
 
   pub fn push(&self, waker: Waker) {
-    self.0.borrow_mut().push(waker);
+    self.0.lock().push(waker);
   }
 }
 
@@ -177,9 +179,10 @@ struct ChildWakerState {
   wakers: WakerStore,
 }
 
-fn create_child_waker(state: Rc<ChildWakerState>) -> Waker {
+// Wakers must implement Send + Sync
+fn create_child_waker(state: Arc<ChildWakerState>) -> Waker {
   let raw_waker = RawWaker::new(
-    Rc::into_raw(state) as *const (),
+    Arc::into_raw(state) as *const (),
     &RawWakerVTable::new(
       clone_waker,
       wake_waker,
@@ -191,7 +194,7 @@ fn create_child_waker(state: Rc<ChildWakerState>) -> Waker {
 }
 
 unsafe fn clone_waker(data: *const ()) -> RawWaker {
-  Rc::increment_strong_count(data as *const ChildWakerState);
+  Arc::increment_strong_count(data as *const ChildWakerState);
   RawWaker::new(
     data,
     &RawWakerVTable::new(
@@ -204,7 +207,7 @@ unsafe fn clone_waker(data: *const ()) -> RawWaker {
 }
 
 unsafe fn wake_waker(data: *const ()) {
-  let state = Rc::from_raw(data as *const ChildWakerState);
+  let state = Arc::from_raw(data as *const ChildWakerState);
   state.can_poll.raise();
   let wakers = state.wakers.take_all();
   drop(state);
@@ -215,10 +218,10 @@ unsafe fn wake_waker(data: *const ()) {
 }
 
 unsafe fn wake_by_ref_waker(data: *const ()) {
-  let state = Rc::from_raw(data as *const ChildWakerState);
+  let state = Arc::from_raw(data as *const ChildWakerState);
   state.can_poll.raise();
   let wakers = state.wakers.clone_all();
-  let _ = Rc::into_raw(state); // keep it alive
+  let _ = Arc::into_raw(state); // keep it alive
 
   for waker in wakers {
     waker.wake_by_ref();
@@ -226,7 +229,7 @@ unsafe fn wake_by_ref_waker(data: *const ()) {
 }
 
 unsafe fn drop_waker(data: *const ()) {
-  Rc::decrement_strong_count(data as *const ChildWakerState);
+  Arc::decrement_strong_count(data as *const ChildWakerState);
 }
 
 #[cfg(test)]
