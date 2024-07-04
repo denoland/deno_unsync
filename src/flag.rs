@@ -55,7 +55,6 @@ impl AtomicFlag {
   pub fn is_raised(&self) -> bool {
     self.0.load(Ordering::SeqCst)
   }
-  
 }
 
 #[cfg(test)]
