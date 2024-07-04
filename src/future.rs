@@ -209,6 +209,7 @@ unsafe fn wake_waker(data: *const ()) {
   state.can_poll.raise();
   let wakers = state.wakers.take_all();
   drop(state);
+
   for waker in wakers {
     waker.wake();
   }
