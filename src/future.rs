@@ -1,15 +1,16 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
+use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Context;
-use std::task::RawWaker;
-use std::task::RawWakerVTable;
+use std::task::Wake;
 use std::task::Waker;
 
-use crate::Flag;
+use crate::AtomicFlag;
 
 impl<T: ?Sized> LocalFutureExt for T where T: Future {}
 
@@ -57,7 +58,7 @@ where
 
 struct SharedLocalInner<TFuture: Future> {
   data: RefCell<SharedLocalData<TFuture>>,
-  child_waker_state: Rc<ChildWakerState>,
+  child_waker_state: Arc<ChildWakerState>,
 }
 
 impl<TFuture: Future> std::fmt::Debug for SharedLocalInner<TFuture>
@@ -103,8 +104,8 @@ where
       data: RefCell::new(SharedLocalData {
         future_or_output: FutureOrOutput::Future(future),
       }),
-      child_waker_state: Rc::new(ChildWakerState {
-        can_poll: Flag::raised(),
+      child_waker_state: Arc::new(ChildWakerState {
+        can_poll: AtomicFlag::raised(),
         wakers: Default::default(),
       }),
     }))
@@ -128,8 +129,7 @@ where
       FutureOrOutput::Future(fut) => {
         self.0.child_waker_state.wakers.push(cx.waker().clone());
         if self.0.child_waker_state.can_poll.lower() {
-          let child_waker =
-            create_child_waker(self.0.child_waker_state.clone());
+          let child_waker = Waker::from(self.0.child_waker_state.clone());
           let mut child_cx = Context::from_waker(&child_waker);
           let fut = unsafe { Pin::new_unchecked(fut) };
           match fut.poll(&mut child_cx) {
@@ -154,79 +154,47 @@ where
 }
 
 #[derive(Debug, Default)]
-struct WakerStore(RefCell<Vec<Waker>>);
+struct WakerStore(Mutex<Vec<Waker>>);
 
 impl WakerStore {
   pub fn take_all(&self) -> Vec<Waker> {
-    let mut wakers = self.0.borrow_mut();
+    let mut wakers = self.0.lock();
     std::mem::take(&mut *wakers)
   }
 
   pub fn clone_all(&self) -> Vec<Waker> {
-    self.0.borrow().clone()
+    self.0.lock().clone()
   }
 
   pub fn push(&self, waker: Waker) {
-    self.0.borrow_mut().push(waker);
+    self.0.lock().push(waker);
   }
 }
 
 #[derive(Debug)]
 struct ChildWakerState {
-  can_poll: Flag,
+  can_poll: AtomicFlag,
   wakers: WakerStore,
 }
 
-fn create_child_waker(state: Rc<ChildWakerState>) -> Waker {
-  let raw_waker = RawWaker::new(
-    Rc::into_raw(state) as *const (),
-    &RawWakerVTable::new(
-      clone_waker,
-      wake_waker,
-      wake_by_ref_waker,
-      drop_waker,
-    ),
-  );
-  unsafe { Waker::from_raw(raw_waker) }
-}
+impl Wake for ChildWakerState {
+  fn wake(self: Arc<Self>) {
+    self.can_poll.raise();
+    let wakers = self.wakers.take_all();
 
-unsafe fn clone_waker(data: *const ()) -> RawWaker {
-  Rc::increment_strong_count(data as *const ChildWakerState);
-  RawWaker::new(
-    data,
-    &RawWakerVTable::new(
-      clone_waker,
-      wake_waker,
-      wake_by_ref_waker,
-      drop_waker,
-    ),
-  )
-}
-
-unsafe fn wake_waker(data: *const ()) {
-  let state = Rc::from_raw(data as *const ChildWakerState);
-  state.can_poll.raise();
-  let wakers = state.wakers.take_all();
-  drop(state);
-
-  for waker in wakers {
-    waker.wake();
+    for waker in wakers {
+      waker.wake();
+    }
   }
-}
 
-unsafe fn wake_by_ref_waker(data: *const ()) {
-  let state = Rc::from_raw(data as *const ChildWakerState);
-  state.can_poll.raise();
-  let wakers = state.wakers.clone_all();
-  let _ = Rc::into_raw(state); // keep it alive
+  fn wake_by_ref(self: &Arc<Self>) {
+    self.can_poll.raise();
+    let wakers = self.wakers.clone_all();
 
-  for waker in wakers {
-    waker.wake_by_ref();
+    for waker in wakers {
+      waker.wake_by_ref();
+    }
   }
-}
-
-unsafe fn drop_waker(data: *const ()) {
-  Rc::decrement_strong_count(data as *const ChildWakerState);
 }
 
 #[cfg(test)]

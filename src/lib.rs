@@ -9,6 +9,7 @@ mod task;
 mod task_queue;
 mod waker;
 
+pub use flag::AtomicFlag;
 pub use flag::Flag;
 pub use joinset::JoinSet;
 pub use split::split_io;

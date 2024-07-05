@@ -1,6 +1,6 @@
 [package]
 name = "deno_unsync"
-version = "0.3.7"
+version = "0.3.10"
 edition = "2021"
 authors = ["the Deno authors"]
 license = "MIT"
@@ -9,6 +9,7 @@ description = "A collection of adapters to make working with Tokio single-thread
 readme = "README.md"
 
 [dependencies]
+parking_lot = "0.12.3"
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
