@@ -7,8 +7,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::task::Context;
-use std::task::RawWaker;
-use std::task::RawWakerVTable;
+use std::task::Wake;
 use std::task::Waker;
 
 use crate::AtomicFlag;
@@ -130,8 +129,7 @@ where
       FutureOrOutput::Future(fut) => {
         self.0.child_waker_state.wakers.push(cx.waker().clone());
         if self.0.child_waker_state.can_poll.lower() {
-          let child_waker =
-            create_child_waker(self.0.child_waker_state.clone());
+          let child_waker = Waker::from(self.0.child_waker_state.clone());
           let mut child_cx = Context::from_waker(&child_waker);
           let fut = unsafe { Pin::new_unchecked(fut) };
           match fut.poll(&mut child_cx) {
@@ -179,57 +177,24 @@ struct ChildWakerState {
   wakers: WakerStore,
 }
 
-// Wakers must implement Send + Sync
-fn create_child_waker(state: Arc<ChildWakerState>) -> Waker {
-  let raw_waker = RawWaker::new(
-    Arc::into_raw(state) as *const (),
-    &RawWakerVTable::new(
-      clone_waker,
-      wake_waker,
-      wake_by_ref_waker,
-      drop_waker,
-    ),
-  );
-  unsafe { Waker::from_raw(raw_waker) }
-}
+impl Wake for ChildWakerState {
+  fn wake(self: Arc<Self>) {
+    self.can_poll.raise();
+    let wakers = self.wakers.take_all();
 
-unsafe fn clone_waker(data: *const ()) -> RawWaker {
-  Arc::increment_strong_count(data as *const ChildWakerState);
-  RawWaker::new(
-    data,
-    &RawWakerVTable::new(
-      clone_waker,
-      wake_waker,
-      wake_by_ref_waker,
-      drop_waker,
-    ),
-  )
-}
-
-unsafe fn wake_waker(data: *const ()) {
-  let state = Arc::from_raw(data as *const ChildWakerState);
-  state.can_poll.raise();
-  let wakers = state.wakers.take_all();
-  drop(state);
-
-  for waker in wakers {
-    waker.wake();
+    for waker in wakers {
+      waker.wake();
+    }
   }
-}
 
-unsafe fn wake_by_ref_waker(data: *const ()) {
-  let state = Arc::from_raw(data as *const ChildWakerState);
-  state.can_poll.raise();
-  let wakers = state.wakers.clone_all();
-  let _ = Arc::into_raw(state); // keep it alive
+  fn wake_by_ref(self: &Arc<Self>) {
+    self.can_poll.raise();
+    let wakers = self.wakers.clone_all();
 
-  for waker in wakers {
-    waker.wake_by_ref();
+    for waker in wakers {
+      waker.wake_by_ref();
+    }
   }
-}
-
-unsafe fn drop_waker(data: *const ()) {
-  Arc::decrement_strong_count(data as *const ChildWakerState);
 }
 
 #[cfg(test)]
