@@ -18,12 +18,14 @@ jobs:
     - uses: dsherret/rust-toolchain-file@v1
     - name: Build
       run: cargo build
+    - name: Build (no default features)
+      run: cargo build --no-default-features
     - name: Format
       run: cargo fmt -- --check
     - name: Lint
       run: cargo clippy --all-targets --all-features -- -D warnings
     - name: Test
-      run: cargo test --verbose
+      run: cargo test
 
   miri:
     runs-on: ubuntu-latest
