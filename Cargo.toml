@@ -8,9 +8,13 @@ repository = "https://github.com/denoland/deno_unsync"
 description = "A collection of adapters to make working with Tokio single-threaded runtimes easier"
 readme = "README.md"
 
+[features]
+default = ["tokio"]
+tokio = ["dep:tokio"]
+
 [dependencies]
 parking_lot = "0.12.3"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "rt", "sync"] }

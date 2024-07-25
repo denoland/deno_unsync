@@ -10,7 +10,7 @@ use std::task::Context;
 use std::task::Wake;
 use std::task::Waker;
 
-use crate::AtomicFlag;
+use crate::sync::AtomicFlag;
 
 impl<T: ?Sized> LocalFutureExt for T where T: Future {}
 

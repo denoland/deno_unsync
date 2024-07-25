@@ -171,7 +171,7 @@ mod tests {
   use std::sync::Arc;
   use std::sync::Mutex;
 
-  use crate::JoinSet;
+  use crate::tokio::JoinSet;
 
   use super::*;
 

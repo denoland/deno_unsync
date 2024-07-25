@@ -9,8 +9,8 @@ use std::task::Waker;
 use tokio::task::AbortHandle;
 use tokio::task::JoinError;
 
-use crate::task::MaskFutureAsSend;
-use crate::task::MaskResultAsSend;
+use super::task::MaskFutureAsSend;
+use super::task::MaskResultAsSend;
 
 /// Wraps the tokio [`JoinSet`] to make it !Send-friendly and to make it easier and safer for us to
 /// poll while empty.

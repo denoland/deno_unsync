@@ -167,11 +167,11 @@ mod test {
   #[tokio::test(flavor = "current_thread")]
   async fn receiver_recv_then_drop_sender() {
     let (sender, mut receiver) = unbounded_channel::<usize>();
-    let future = crate::task::spawn(async move {
+    let future = crate::spawn(async move {
       let value = receiver.recv().await;
       value.is_none()
     });
-    let future2 = crate::task::spawn(async move {
+    let future2 = crate::spawn(async move {
       drop(sender);
       true
     });
@@ -186,7 +186,7 @@ mod test {
       for sender_ticks in [None, Some(1), Some(10)] {
         for sender_count in [1000, 100, 10, 2, 1] {
           let (sender, mut receiver) = unbounded_channel::<usize>();
-          let future = crate::task::spawn(async move {
+          let future = crate::spawn(async move {
             let mut values = Vec::with_capacity(1000);
             for _ in 0..1000 {
               if let Some(ticks) = receiver_ticks {
@@ -215,7 +215,7 @@ mod test {
           for sender_index in 0..sender_count {
             let sender = sender.clone();
             let batch_count = 1000 / sender_count;
-            futures.push(crate::task::spawn(async move {
+            futures.push(crate::spawn(async move {
               for i in 0..batch_count {
                 if let Some(ticks) = sender_ticks {
                   for _ in 0..ticks {
