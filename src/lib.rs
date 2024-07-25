@@ -3,11 +3,11 @@
 mod flag;
 pub mod future;
 pub mod mpsc;
-#[cfg(feature = "tokio")]
-mod tokio;
 pub mod sync;
 mod task;
 mod task_queue;
+#[cfg(feature = "tokio")]
+mod tokio;
 mod waker;
 
 pub use flag::Flag;

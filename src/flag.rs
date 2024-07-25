@@ -29,7 +29,6 @@ impl Flag {
   }
 }
 
-
 #[cfg(test)]
 mod test {
   use super::*;

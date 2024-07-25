@@ -29,7 +29,6 @@ impl AtomicFlag {
   }
 }
 
-
 #[cfg(test)]
 mod test {
   use super::*;
