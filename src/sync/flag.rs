@@ -8,8 +8,13 @@ use std::sync::atomic::Ordering;
 pub struct AtomicFlag(AtomicBool);
 
 impl AtomicFlag {
+  /// Creates a new flag that's lowered.
+  pub const fn lowered() -> AtomicFlag {
+    Self(AtomicBool::new(false))
+  }
+
   /// Creates a new flag that's raised.
-  pub fn raised() -> AtomicFlag {
+  pub const fn raised() -> AtomicFlag {
     Self(AtomicBool::new(true))
   }
 

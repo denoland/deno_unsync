@@ -8,8 +8,13 @@ use std::cell::Cell;
 pub struct Flag(Cell<bool>);
 
 impl Flag {
+  /// Creates a new flag that's lowered.
+  pub const fn lowered() -> Self {
+    Self(Cell::new(false))
+  }
+
   /// Creates a new flag that's raised.
-  pub fn raised() -> Self {
+  pub const fn raised() -> Self {
     Self(Cell::new(true))
   }
 
