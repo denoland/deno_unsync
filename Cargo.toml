@@ -13,11 +13,12 @@ default = ["tokio"]
 tokio = ["dep:tokio"]
 
 [dependencies]
+futures = "0.3.21"
 parking_lot = "0.12.3"
 tokio = { version = "1", features = ["rt"], optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["io-util", "macros", "rt", "sync"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] }
 
 [lib]
 name = "deno_unsync"

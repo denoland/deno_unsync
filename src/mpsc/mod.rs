@@ -87,7 +87,7 @@ struct RecvFuture<'a, T> {
   shared: &'a RefCell<Shared<T>>,
 }
 
-impl<'a, T> Future for RecvFuture<'a, T> {
+impl<T> Future for RecvFuture<'_, T> {
   type Output = Option<T>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
