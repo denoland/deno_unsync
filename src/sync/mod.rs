@@ -8,3 +8,5 @@ mod value_creator;
 pub use flag::AtomicFlag;
 #[cfg(feature = "tokio")]
 pub use value_creator::MultiRuntimeAsyncValueCreator;
+pub use task_queue::TaskQueue;
+pub use task_queue::TaskQueuePermit;
