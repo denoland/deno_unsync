@@ -1,9 +1,9 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
 mod flag;
+mod task_queue;
 #[cfg(feature = "tokio")]
 mod value_creator;
-mod task_queue;
 
 pub use flag::AtomicFlag;
 #[cfg(feature = "tokio")]
