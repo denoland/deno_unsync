@@ -3,6 +3,7 @@
 mod flag;
 #[cfg(feature = "tokio")]
 mod value_creator;
+mod task_queue;
 
 pub use flag::AtomicFlag;
 #[cfg(feature = "tokio")]
