@@ -4,7 +4,7 @@ use std::collections::LinkedList;
 use std::future::Future;
 use std::sync::Arc;
 
-use futures::task::AtomicWaker;
+use futures_util::task::AtomicWaker;
 use parking_lot::Mutex;
 
 use super::AtomicFlag;
@@ -169,7 +169,7 @@ mod test {
         .unwrap();
       }));
     }
-    futures::future::join_all(tasks).await;
+    futures_util::future::join_all(tasks).await;
   }
 
   #[tokio::test]
