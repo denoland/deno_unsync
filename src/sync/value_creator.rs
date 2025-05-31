@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use futures::future::LocalBoxFuture;
-use futures::future::Shared;
-use futures::FutureExt;
+use futures_util::future::BoxFuture;
+use futures_util::future::LocalBoxFuture;
+use futures_util::future::Shared;
+use futures_util::FutureExt;
 use parking_lot::Mutex;
 use tokio::task::JoinError;
 
